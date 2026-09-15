@@ -10,6 +10,18 @@ the two-track work split.
 - `payment-service` — mock downstream payment consumer.
 - `shipment-service` — mock downstream shipment consumer.
 
+## Environment variables
+
+Each service reads `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` from a `.env` file
+at the repo root (see `.env.example`). `.env` is git-ignored — never commit
+real credentials.
+
+- Running via `mvn spring-boot:run` from the repo root: the `.env` file is
+  picked up automatically.
+- Running via IntelliJ: set the working directory of the run configuration
+  to the repo root, or set `DB_URL`/`DB_USERNAME`/`DB_PASSWORD` directly as
+  environment variables on the run configuration.
+
 ## Local infrastructure
 
 ```bash
