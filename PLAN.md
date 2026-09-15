@@ -159,8 +159,10 @@ manually-inserted outbox rows before Track A's API exists.
 
 ## Open questions (fill in as you decide)
 
-- [ ] Repo hosting / access for both developers (not set up yet).
-- [ ] Branching strategy / PR review expectations.
+- [x] Repo hosting / access for both developers: GitHub, both admins.
+- [x] Branching strategy: feature branches off `main`, PR + review before
+      merge. No `main` direct pushes going forward (no GitHub branch
+      protection enforcing this yet — just discipline).
 - [ ] Choreography fallback considered and rejected — confirm both agree on
       pure orchestration (per the original design rationale: centralized,
       easier to reason about and demo).
