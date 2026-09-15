@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: orchestrator-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/apex
+    username: apex
+    password: apex
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  kafka:
+    bootstrap-servers: localhost:9092
+
+server:
+  port: 8080

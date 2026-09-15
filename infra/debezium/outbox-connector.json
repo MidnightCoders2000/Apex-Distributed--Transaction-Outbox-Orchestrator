@@ -1,0 +1,14 @@
+{
+  "name": "apex-outbox-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "apex",
+    "database.password": "apex",
+    "database.dbname": "apex",
+    "topic.prefix": "apex",
+    "table.include.list": "public.outbox_event",
+    "plugin.name": "pgoutput"
+  }
+}
