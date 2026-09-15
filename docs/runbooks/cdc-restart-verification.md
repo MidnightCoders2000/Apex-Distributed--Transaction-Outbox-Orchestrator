@@ -94,7 +94,7 @@ are independent signals:
 | # | Criterion | What it rules out |
 |---|-----------|--------------------|
 | a | Pre-marker count == 20 **and** post-marker count == 20, no more, no less | A gap (lost events) or duplicates (double-delivery) straddling the restart boundary — and, since a resnapshot would redeliver the pre-batch, a resnapshot masquerading as a clean resume |
-| b | After the restart the slot polls to `active = t` (bounded wait, not a single sample) **and** `confirmed_flush_lsn` **advanced** past the baseline | A slot that exists but has no consumer attached to it, or one that is attached but making no progress |
+| b | After the restart the slot polls to `active = t` (bounded wait, not a single sample) **and** `confirmed_flush_lsn` **advanced past its value at the moment of the restart** | A slot that exists but has no consumer attached to it, or one that is attached but making no progress. The comparison point matters: against the *initial* baseline the LSN check could not fail, since the 20 pre-restart inserts move the LSN by themselves |
 | c | Connector state returns to `RUNNING` on its own, with no task in `FAILED`, both before and after the restart | A connector that is technically "up" but stuck retrying with a failed task |
 
 Two checks that were here previously were dropped as non-signals:

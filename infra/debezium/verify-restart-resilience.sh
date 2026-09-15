@@ -185,19 +185,30 @@ if wait_connector_running; then AFTER_RUNNING=true; fi
 
 SLOT_REACTIVATED=false
 if wait_slot_active; then SLOT_REACTIVATED=true; fi
+# Read `active` at the moment (b) is decided, not after the LSN wait below,
+# which can run for 80s. Reporting the later value could print (t -> f)
+# next to a PASS verdict that was taken from SLOT_REACTIVATED.
+ACTIVE_AT_CHECK="$(get_slot_info | cut -d'|' -f2)"
 
 if [ -n "$MID_LSN" ]; then
   wait_lsn_advance "$MID_LSN" || true
 fi
 
 AFTER="$(get_slot_info)"
-IFS='|' read -r _ AFTER_ACTIVE AFTER_LSN <<< "$AFTER"
+IFS='|' read -r _ _ AFTER_LSN <<< "$AFTER"
 echo "after-restart slot: ${AFTER:-<none>}"
 
+# Compare against MID_LSN (taken immediately before the restart), not
+# BASE_LSN (taken before the 20 pre-restart inserts). Those inserts advance
+# the LSN on their own, so an AFTER > BASE comparison would hold even if
+# the restart broke replication outright and nothing moved afterwards --
+# the same class of can't-fail check as last round's slot_name comparison.
+# This also gives the wait_lsn_advance "$MID_LSN" call above a result
+# instead of discarding it.
 LSN_ADVANCED=false
-if [ -n "$BASE_LSN" ] && [ -n "$AFTER_LSN" ]; then
+if [ -n "$MID_LSN" ] && [ -n "$AFTER_LSN" ]; then
   CMP="$($COMPOSE exec -T postgres psql -U apex -d apex -t -A -c \
-    "SELECT ('${AFTER_LSN}'::pg_lsn > '${BASE_LSN}'::pg_lsn);" | tr -d '\r ')"
+    "SELECT ('${AFTER_LSN}'::pg_lsn > '${MID_LSN}'::pg_lsn);" | tr -d '\r ')"
   [ "$CMP" = "t" ] && LSN_ADVANCED=true
 fi
 
@@ -240,7 +251,7 @@ fmt() { [ "$1" = "true" ] && echo "PASS" || echo "FAIL"; }
 echo ""
 echo "== results (run ${TS}) =="
 printf '%-4s %-66s %-6s\n' "a)" "pre=${PRE_COUNT}/${N} post=${POST_COUNT}/${N}, no gap/dup across restart" "$(fmt $PASS_A)"
-printf '%-4s %-66s %-6s\n' "b)" "slot re-activated after restart (${BASE_ACTIVE:-?} -> ${AFTER_ACTIVE:-?}), flush LSN advanced" "$(fmt $PASS_B)"
+printf '%-4s %-66s %-6s\n' "b)" "slot re-activated (${BASE_ACTIVE:-?} -> ${ACTIVE_AT_CHECK:-?}), LSN advanced past restart" "$(fmt $PASS_B)"
 printf '%-4s %-66s %-6s\n' "c)" "connector back to RUNNING, no FAILED task" "$(fmt $PASS_C)"
 echo ""
 

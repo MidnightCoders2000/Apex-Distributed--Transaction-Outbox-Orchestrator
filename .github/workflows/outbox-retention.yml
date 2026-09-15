@@ -41,7 +41,11 @@ jobs:
           # `eval ""` on a parser failure — a successful command that set -e
           # cannot catch, letting a rejected DB_URL fall through to psql.
           # In an assignment, command substitution propagates the exit status.
-          PGENV="$(python3 - <<'PY'
+          # -X utf8: the script below is deliberately ASCII, but python reads
+          # stdin in the locale encoding, so a stray non-ASCII character added
+          # later would be a SyntaxError on a non-UTF-8 runner. The flag makes
+          # that structural rather than a convention to remember.
+          PGENV="$(python3 -X utf8 - <<'PY'
           import os, shlex, sys
           from urllib.parse import urlsplit, parse_qsl, unquote
 
