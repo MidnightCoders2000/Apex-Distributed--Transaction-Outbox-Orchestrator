@@ -53,7 +53,20 @@ independently against fakes/stubs and integrated at the end.
 
 ---
 
-## Track A — Transaction Core & Orchestrator
+## Ownership
+
+- **Colleague → Track A.** Develops against the in-memory/fake event bus, so
+  no local Docker is required until the integration checkpoint.
+- **You → Track B + Docker/infra owner.** Runs docker-compose locally, owns
+  the final integration checkpoint (wiring Track A's outbox into real
+  Kafka), and owns deployment (planned target: Render — see Open questions).
+  CI (GitHub Actions/Testcontainers) runs on GitHub-hosted runners, which
+  already have Docker preinstalled, so the colleague isn't blocked by CI
+  either.
+
+---
+
+## Track A — Transaction Core & Orchestrator (colleague)
 
 Owns the "brain": the API, the outbox write path, and the saga state
 machine. Can be built against an in-memory/fake event bus first, swapped for
@@ -83,7 +96,7 @@ real Kafka at integration time.
 
 ---
 
-## Track B — Event Infrastructure & Downstream Services
+## Track B — Event Infrastructure & Downstream Services (you)
 
 Owns the "body": the plumbing that makes events flow reliably, and the
 services that react to commands. Can be built and demoed independently using
@@ -154,5 +167,6 @@ manually-inserted outbox rows before Track A's API exists.
 - [ ] Choreography fallback considered and rejected — confirm both agree on
       pure orchestration (per the original design rationale: centralized,
       easier to reason about and demo).
-- [ ] Deployment target for the demo, if any (local docker-compose only vs.
-      cloud demo instance).
+- [x] Deployment target for the demo: Render (you own this — Render builds
+      the containers in the cloud, so colleague needs no local Docker for
+      it either).
