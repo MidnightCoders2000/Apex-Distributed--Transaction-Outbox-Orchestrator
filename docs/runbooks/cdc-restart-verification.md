@@ -7,8 +7,8 @@ events flowing through Debezium into Kafka.
 
 - `docker-compose up -d` already running (redis, zookeeper, kafka,
   kafka-connect).
-- `.env` populated (see `.env.example`) — the script only reads it for the
-  preamble; the actual DB target for this test is local, not Neon.
+- No `.env` needed: the test targets a local throwaway Postgres and sets
+  all six connection variables itself.
 - Nothing else bound to host port `5433`.
 - `docker`, `docker-compose`, `curl`, `envsubst`, `psql` (inside the
   postgres container, not required on the host) available.
@@ -28,32 +28,87 @@ This is fully automated — no prompts, no manual restart. It:
 3. Registers `infra/debezium/outbox-connector.json` against that local
    instance (same template, same `envsubst` path as
    `register-connector.sh`, with `DIRECT_DB_HOST=postgres`,
-   `DB_PORT=5432`, `DB_SSLMODE=disable` overridden for the local run).
+   `DB_PORT=5432`, `DB_SSLMODE=disable` overridden for the local run)
+   under its **own identity** — see "Isolation from the real connector"
+   below.
 4. Records the replication slot's baseline `confirmed_flush_lsn`.
 5. Inserts 20 pre-restart marker rows.
 6. Runs `docker-compose restart postgres` and waits for `pg_isready`.
 7. Inserts 20 post-restart marker rows — **without re-registering the
    connector**. This is the assertion that actually matters: the
    connector has to reconnect and resume on its own.
-8. Consumes `apex.public.outbox_event` from Kafka and counts markers per
-   batch.
+8. Consumes `apextest.public.outbox_event` from Kafka and counts markers
+   per batch.
 
 Expected output ends with a PASS/FAIL table and an `OVERALL: PASS` line;
 exit code is non-zero if anything failed.
 
-## The four PASS criteria
+## Isolation from the real connector
+
+The test registers a connector with its own name, topic prefix, slot and
+publication:
+
+| | Real (`register-connector.sh`) | Test |
+|---|---|---|
+| `name` | `apex-outbox-connector` | `apex-outbox-connector-cdctest` |
+| `topic.prefix` | `apex` | `apextest` |
+| `slot.name` | `apex_outbox_slot` | `apex_outbox_slot_cdctest` |
+| `publication.name` | `apex_outbox_pub` | `apex_outbox_pub_cdctest` |
+
+All four are `envsubst` variables in `outbox-connector.json`, defaulted to
+the real values in `register-connector.sh` and overridden by the test.
+
+This matters because Kafka Connect keys connector offsets by
+`{server: topic.prefix}`, not by target host. When the test shared the
+real name and prefix, two things went wrong at once: a stale offset from
+an earlier run made Debezium resume from an LSN that did not exist in the
+fresh local database and silently skip the test's events, and the test's
+marker rows landed in `apex.public.outbox_event` alongside real events.
+The workaround was to stop the connector, delete its offsets and delete
+the connector before every run — which also destroyed the Neon-targeted
+registration, leaving it pointed at a one-shot local container with no
+step to re-register it.
+
+The publication is also created narrowly. `publication.autocreate.mode`
+defaults to `all_tables`, which makes Debezium issue `CREATE PUBLICATION
+... FOR ALL TABLES` even though `table.include.list` is only
+`public.outbox_event`. That happened to work locally (the `apex` user is a
+superuser there), but on Neon it needs both a privilege the app role does
+not necessarily have and, worse, it would decode WAL for every one of
+Track A's tables. The connector sets
+`"publication.autocreate.mode": "filtered"`, which publishes only the
+included tables.
+
+Separate identities remove all of that: there are no shared offsets to
+reset, no shared topic to pollute, and running this test never touches the
+Neon registration. **Do not** re-introduce a reset of
+`apex-outbox-connector` here.
+
+## The three PASS criteria
 
 A naive check — "grep both batches out of `--from-beginning`" — passes in
 scenarios that have nothing to do with resilience (e.g. a full resnapshot
-after the restart would also produce both batches). These four criteria
-are checked independently so a false pass isn't possible:
+after the restart would also produce both batches). These three criteria
+are independent signals:
 
 | # | Criterion | What it rules out |
 |---|-----------|--------------------|
-| a | All 20 post-restart markers reached Kafka with the connector **never re-registered** | The connector silently dying and a human/script papering over it by re-POSTing the config |
-| b | `pg_replication_slots` shows the **same** `slot_name` before and after, and `confirmed_flush_lsn` **advanced** past the baseline | A dropped-and-recreated slot (which would also "work" but proves nothing about WAL retention) |
-| c | Pre-marker count == 20 **and** post-marker count == 20, no more, no less | A gap (lost events) or duplicates (double-delivery) straddling the restart boundary |
-| d | Connector state returns to `RUNNING` on its own, with no task in `FAILED`, both before and after the restart | A connector that's technically "up" but stuck retrying with a failed task |
+| a | Pre-marker count == 20 **and** post-marker count == 20, no more, no less | A gap (lost events) or duplicates (double-delivery) straddling the restart boundary — and, since a resnapshot would redeliver the pre-batch, a resnapshot masquerading as a clean resume |
+| b | After the restart the slot is `active = t` **and** `confirmed_flush_lsn` **advanced** past the baseline | A slot that exists but has no consumer attached to it, or one that is attached but making no progress |
+| c | Connector state returns to `RUNNING` on its own, with no task in `FAILED`, both before and after the restart | A connector that is technically "up" but stuck retrying with a failed task |
+
+Two checks that were here previously were dropped as non-signals:
+
+- **"post markers arrived, connector never re-registered."** The count
+  half is already criterion (a); the "never re-registered" half is not an
+  asserted condition at all, just a property of how the script is
+  written — nothing in it re-POSTs the config after the restart.
+- **"same `slot_name` before and after."** `slot.name` is fixed in the
+  connector config, so `BASE_SLOT == AFTER_SLOT` holds whenever the slot
+  exists at all, including for a dropped-and-recreated slot (same name,
+  higher LSN). It ruled out nothing. Its intended target — a slot that is
+  not the one the connector is really consuming from — is covered by
+  `active = t` in (b) plus the no-duplicate half of (a).
 
 ## Why this proves resilience
 
@@ -65,8 +120,8 @@ own read position in memory: it stores connector offsets in the
 survives a Postgres restart untouched because it lives in Kafka, not
 Postgres. Together, those two facts mean a Postgres restart should lose
 nothing as long as the slot survives and Debezium reconnects — which is
-exactly what criteria (a)-(d) check independently, instead of just
-asserting the end state looks fine.
+exactly what criteria (a)-(c) check, instead of just asserting the end
+state looks fine.
 
 ## Failure causes
 
@@ -78,7 +133,7 @@ asserting the end state looks fine.
   offset topic creation. If Kafka's own storage was wiped between runs,
   Debezium restarts from a fresh snapshot instead of resuming.
 - **Connector task `FAILED`** — `curl -s
-  localhost:8083/connectors/apex-outbox-connector/status | python -m
+  localhost:8083/connectors/apex-outbox-connector-cdctest/status | python -m
   json.tool` and read the task's `trace` field; usually a connection
   error to the (now-restarted) Postgres, which should self-heal on
   Debezium's retry loop within the script's polling window.
@@ -112,6 +167,13 @@ result.
 
 ## Results log
 
+Criteria (a)-(d) below use the original four-criterion numbering, recorded
+as they were run. The current script reports three criteria (see above);
+the underlying checks are unchanged apart from the two dropped
+non-signals and `active = t` replacing the slot-name comparison, so these
+runs remain valid evidence. Log the next run under the three-criterion
+numbering.
+
 | Date | Target | Pre count | Post count | a | b | c | d | Overall |
 |------|--------|-----------|------------|---|---|---|---|---------|
 | 2026-09-15 | local (cdc-test) | 20/20 | 20/20 | PASS | PASS | PASS | PASS | **PASS** |
@@ -124,14 +186,17 @@ Postgres container, and each landed on the same slot state
 (`apex_outbox_slot`, one row in `pg_replication_slots` — no duplication) and
 the same marker counts.
 
-Two things had to be fixed to get a genuine pass, both left in place:
+Two things had to be fixed to get a genuine pass:
 
-- Kafka Connect keys offsets by `{server: topic.prefix}`, and this
-  connector shares its name/prefix with the Neon-targeted registration.
-  A stale offset from an earlier run made Debezium resume from an LSN
-  that didn't exist in the fresh local DB and silently skip events. The
-  script now does `PUT .../stop` → `DELETE .../offsets` → `DELETE
-  .../connectors/apex-outbox-connector` before every run.
+- Kafka Connect keys offsets by `{server: topic.prefix}`, and the test
+  connector originally shared its name/prefix with the Neon-targeted
+  registration. A stale offset from an earlier run made Debezium resume
+  from an LSN that did not exist in the fresh local DB and silently skip
+  events. Those runs worked around it by stopping the connector, deleting
+  its offsets and deleting the connector before every run; that reset has
+  since been replaced by giving the test its own connector identity (see
+  "Isolation from the real connector"), which removes the cause rather
+  than the symptom.
 - `offset.flush.interval.ms` defaults to 60000 on the Kafka Connect
   worker. With the default, restarting Postgres shortly after inserting
   the pre-markers restarted the connector before that checkpoint had

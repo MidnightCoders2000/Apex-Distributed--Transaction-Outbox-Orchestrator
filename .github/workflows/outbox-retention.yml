@@ -2,21 +2,54 @@ name: Outbox Retention
 
 on:
   schedule:
+    # 03:00 UTC daily. GitHub cron is always UTC — it does not follow any
+    # repository or user timezone, and does not shift for DST.
     - cron: "0 3 * * *"
   workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: outbox-retention
+  cancel-in-progress: false
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install psql client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
+      # ubuntu-latest ships psql, so there is nothing to install.
       - name: Delete outbox events older than the retention window
         # DB_URL secret must be a libpq URI (postgresql://user:pass@host/db?sslmode=require),
         # not the jdbc:postgresql:// string the app uses locally — see docs/retention-strategy.md.
+        #
+        # The URI is split into PG* environment variables rather than passed
+        # as a psql argument: an argv connection string puts the password in
+        # the runner's process list, visible to anything that can read `ps`.
+        # ON_ERROR_STOP=1 makes psql exit non-zero on a SQL error (missing
+        # table, revoked privilege) — without it the step is green regardless.
         env:
           DB_URL: ${{ secrets.DB_URL }}
-        run: psql "$DB_URL" -f infra/db/retention-manual.sql
+        run: |
+          set -euo pipefail
+          eval "$(python3 - <<'PY'
+          import os, shlex
+          from urllib.parse import urlsplit, parse_qs, unquote
+          u = urlsplit(os.environ["DB_URL"])
+          if u.scheme not in ("postgres", "postgresql"):
+              raise SystemExit(f"DB_URL must be a libpq URI, got scheme {u.scheme!r}")
+          env = {
+              "PGHOST": u.hostname or "",
+              "PGPORT": str(u.port or 5432),
+              "PGUSER": unquote(u.username or ""),
+              "PGPASSWORD": unquote(u.password or ""),
+              "PGDATABASE": u.path.lstrip("/"),
+              "PGSSLMODE": parse_qs(u.query).get("sslmode", ["require"])[0],
+          }
+          for k, v in env.items():
+              print(f"export {k}={shlex.quote(v)}")
+          PY
+          )"
+          psql -v ON_ERROR_STOP=1 -f infra/db/retention-manual.sql

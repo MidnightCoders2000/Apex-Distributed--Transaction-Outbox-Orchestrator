@@ -3,16 +3,24 @@
 # replication slot holds WAL server-side until Debezium acks past it, and
 # Debezium's own offsets live in the apex_connect_offsets Kafka topic, not
 # in connector memory. See docs/runbooks/cdc-restart-verification.md.
+#
+# This test registers its OWN connector -- name, topic.prefix, slot and
+# publication are all suffixed for the test -- so it never touches the real
+# Neon-targeted registration from register-connector.sh, that connector's
+# offsets, or the apex.public.outbox_event topic real consumers read.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-set -a
-source .env
-set +a
-
 COMPOSE="docker-compose --profile cdc-test"
-CONNECTOR_URL="http://localhost:8083/connectors/apex-outbox-connector"
-TOPIC="apex.public.outbox_event"
+
+CONNECTOR_NAME="apex-outbox-connector-cdctest"
+TOPIC_PREFIX="apextest"
+SLOT_NAME="apex_outbox_slot_cdctest"
+PUBLICATION_NAME="apex_outbox_pub_cdctest"
+export CONNECTOR_NAME TOPIC_PREFIX SLOT_NAME PUBLICATION_NAME
+
+CONNECTOR_URL="http://localhost:8083/connectors/${CONNECTOR_NAME}"
+TOPIC="${TOPIC_PREFIX}.public.outbox_event"
 TS="$(date +%s)"
 N=20
 
@@ -48,9 +56,13 @@ wait_connector_running() {
   done
 }
 
+# concat_ws, not ||: confirmed_flush_lsn is NULL on a freshly created slot
+# that has not confirmed anything yet, and `a || NULL` is NULL for the
+# whole row -- which would make wait_slot_exists spin to its timeout on a
+# slot that does in fact exist.
 get_slot_info() {
   $COMPOSE exec -T postgres psql -U apex -d apex -t -A -c \
-    "SELECT slot_name || '|' || active || '|' || confirmed_flush_lsn FROM pg_replication_slots WHERE slot_name = 'apex_outbox_slot';" \
+    "SELECT concat_ws('|', slot_name, active, confirmed_flush_lsn) FROM pg_replication_slots WHERE slot_name = '${SLOT_NAME}';" \
     | tr -d '\r'
 }
 
@@ -59,7 +71,7 @@ wait_slot_exists() {
   while [ -z "$(get_slot_info)" ]; do
     tries=$((tries + 1))
     if [ "$tries" -ge 30 ]; then
-      echo "replication slot apex_outbox_slot never appeared" >&2
+      echo "replication slot ${SLOT_NAME} never appeared" >&2
       return 1
     fi
     sleep 1
@@ -95,17 +107,12 @@ insert_markers() {
   " >/dev/null
 }
 
-echo "-- resetting any prior connector state --"
-# The connector name and topic.prefix are shared with the Neon-targeted
-# registration (register-connector.sh). Kafka Connect keys offsets by
-# {server: topic.prefix}, not by target host, so a stale offset from a
-# previous run (against Neon or an earlier local container) would make
-# Debezium resume from an LSN that doesn't exist in the fresh local DB
-# and silently skip the events this test just inserted. Stop + reset
-# offsets + delete before every run so registration always starts clean.
-curl -s -o /dev/null -X PUT "${CONNECTOR_URL}/stop" 2>&1 || true
-curl -s -o /dev/null -X DELETE "${CONNECTOR_URL}/offsets" 2>&1 || true
-curl -s -o /dev/null -X DELETE "${CONNECTOR_URL}" 2>&1 || true
+# The test connector is disposable and scoped to this run, so drop it and
+# let the fresh local Postgres below get a fresh registration. Nothing here
+# can reach apex-outbox-connector (the Neon one) -- different name, different
+# topic.prefix, so different offsets too.
+echo "-- dropping any prior ${CONNECTOR_NAME} --"
+curl -s -o /dev/null -X DELETE "${CONNECTOR_URL}" || true
 
 echo "-- fresh cdc-test postgres --"
 $COMPOSE rm -fsv postgres >/dev/null 2>&1 || true
@@ -115,7 +122,7 @@ wait_pg_ready
 echo "-- applying bootstrap DDL --"
 $COMPOSE exec -T postgres psql -U apex -d apex -v ON_ERROR_STOP=1 < infra/db/outbox_event.sql >/dev/null
 
-echo "-- registering connector against local postgres --"
+echo "-- registering ${CONNECTOR_NAME} against local postgres --"
 export DIRECT_DB_HOST=postgres
 export DB_PORT=5432
 export DB_SSLMODE=disable
@@ -183,35 +190,38 @@ CONSUMED="$(docker-compose exec -T kafka kafka-console-consumer \
 PRE_COUNT="$(printf '%s' "$CONSUMED" | grep -c "restart-test-${TS}-pre" || true)"
 POST_COUNT="$(printf '%s' "$CONSUMED" | grep -c "restart-test-${TS}-post" || true)"
 
-# Criterion a: all post-restart markers reached Kafka without re-registering the connector.
+# Criterion a: no gap, no duplicates across the restart boundary. The
+# post-restart batch was inserted without re-registering the connector, but
+# that is a property of this script's flow, not a separately asserted
+# check -- nothing below re-POSTs the config.
 PASS_A=false
-[ "$POST_COUNT" -eq "$N" ] && PASS_A=true
+[ "$PRE_COUNT" -eq "$N" ] && [ "$POST_COUNT" -eq "$N" ] && PASS_A=true
 
-# Criterion b: same slot object survived the restart and confirmed_flush_lsn advanced.
+# Criterion b: the connector re-attached to the slot after the restart
+# (active = t) and its confirmed_flush_lsn advanced past the baseline.
+# Comparing slot_name before/after would be a tautology: slot.name is fixed
+# in the config, so a dropped-and-recreated slot has the same name and a
+# higher LSN too. `active` is the signal that a consumer is actually
+# attached; the no-duplicate half of (a) is what rules out a resnapshot.
 PASS_B=false
-if [ "$BASE_SLOT" = "apex_outbox_slot" ] && [ "$AFTER_SLOT" = "apex_outbox_slot" ] && [ "$LSN_ADVANCED" = "true" ]; then
+if [ "$AFTER_ACTIVE" = "t" ] && [ "$LSN_ADVANCED" = "true" ]; then
   PASS_B=true
 fi
 
-# Criterion c: no gap, no duplicates across the restart boundary.
+# Criterion c: connector returned to RUNNING on its own, no task FAILED.
 PASS_C=false
-[ "$PRE_COUNT" -eq "$N" ] && [ "$POST_COUNT" -eq "$N" ] && PASS_C=true
-
-# Criterion d: connector returned to RUNNING on its own, no task FAILED.
-PASS_D=false
-[ "$INITIAL_RUNNING" = "true" ] && [ "$AFTER_RUNNING" = "true" ] && PASS_D=true
+[ "$INITIAL_RUNNING" = "true" ] && [ "$AFTER_RUNNING" = "true" ] && PASS_C=true
 
 fmt() { [ "$1" = "true" ] && echo "PASS" || echo "FAIL"; }
 
 echo ""
 echo "== results (run ${TS}) =="
-printf '%-4s %-60s %-6s\n' "a)" "post-restart markers reached Kafka (${POST_COUNT}/${N}), no re-register" "$(fmt $PASS_A)"
-printf '%-4s %-60s %-6s\n' "b)" "same slot survived, confirmed_flush_lsn advanced" "$(fmt $PASS_B)"
-printf '%-4s %-60s %-6s\n' "c)" "pre=${PRE_COUNT}/${N} post=${POST_COUNT}/${N}, no gap/dup" "$(fmt $PASS_C)"
-printf '%-4s %-60s %-6s\n' "d)" "connector back to RUNNING, no FAILED task" "$(fmt $PASS_D)"
+printf '%-4s %-66s %-6s\n' "a)" "pre=${PRE_COUNT}/${N} post=${POST_COUNT}/${N}, no gap/dup across restart" "$(fmt $PASS_A)"
+printf '%-4s %-66s %-6s\n' "b)" "slot active after restart (${BASE_ACTIVE:-?} -> ${AFTER_ACTIVE:-?}), flush LSN advanced" "$(fmt $PASS_B)"
+printf '%-4s %-66s %-6s\n' "c)" "connector back to RUNNING, no FAILED task" "$(fmt $PASS_C)"
 echo ""
 
-if [ "$PASS_A" = "true" ] && [ "$PASS_B" = "true" ] && [ "$PASS_C" = "true" ] && [ "$PASS_D" = "true" ]; then
+if [ "$PASS_A" = "true" ] && [ "$PASS_B" = "true" ] && [ "$PASS_C" = "true" ]; then
   echo "OVERALL: PASS"
   exit 0
 else

@@ -1,5 +1,5 @@
 {
-  "name": "apex-outbox-connector",
+  "name": "${CONNECTOR_NAME}",
   "config": {
     "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
     "database.hostname": "${DIRECT_DB_HOST}",
@@ -8,13 +8,15 @@
     "database.password": "${DB_PASSWORD}",
     "database.dbname": "${DB_NAME}",
     "database.sslmode": "${DB_SSLMODE}",
-    "topic.prefix": "apex",
+    "topic.prefix": "${TOPIC_PREFIX}",
     "table.include.list": "public.outbox_event",
     "plugin.name": "pgoutput",
-    "slot.name": "apex_outbox_slot",
-    "publication.name": "apex_outbox_pub",
+    "slot.name": "${SLOT_NAME}",
+    "publication.name": "${PUBLICATION_NAME}",
+    "publication.autocreate.mode": "filtered",
     "snapshot.mode": "initial",
     "heartbeat.interval.ms": "10000",
-    "tombstones.on.delete": "false"
+    "tombstones.on.delete": "false",
+    "skipped.operations": "d"
   }
 }
