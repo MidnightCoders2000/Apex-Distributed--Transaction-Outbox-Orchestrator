@@ -55,9 +55,9 @@ independently against fakes/stubs and integrated at the end.
 
 ## Ownership
 
-- **Colleague → Track A.** Develops against the in-memory/fake event bus, so
+- **Track A.** Develops against the in-memory/fake event bus, so
   no local Docker is required until the integration checkpoint.
-- **You → Track B + Docker/infra owner.** Runs docker-compose locally, owns
+- **Track B + Docker/infra owner.** Runs docker-compose locally, owns
   the final integration checkpoint (wiring Track A's outbox into real
   Kafka), and owns deployment (planned target: Render — see Open questions).
 
