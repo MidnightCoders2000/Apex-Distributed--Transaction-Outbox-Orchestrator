@@ -4,6 +4,8 @@ cd "$(dirname "$0")/../.."
 
 set -a
 source .env
+: "${DB_PORT:=5432}"
+: "${DB_SSLMODE:=require}"
 set +a
 
 envsubst < infra/debezium/outbox-connector.json \

@@ -3,13 +3,18 @@
   "config": {
     "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
     "database.hostname": "${DIRECT_DB_HOST}",
-    "database.port": "5432",
+    "database.port": "${DB_PORT}",
     "database.user": "${DB_USERNAME}",
     "database.password": "${DB_PASSWORD}",
     "database.dbname": "${DB_NAME}",
-    "database.sslmode": "require",
+    "database.sslmode": "${DB_SSLMODE}",
     "topic.prefix": "apex",
     "table.include.list": "public.outbox_event",
-    "plugin.name": "pgoutput"
+    "plugin.name": "pgoutput",
+    "slot.name": "apex_outbox_slot",
+    "publication.name": "apex_outbox_pub",
+    "snapshot.mode": "initial",
+    "heartbeat.interval.ms": "10000",
+    "tombstones.on.delete": "false"
   }
 }
