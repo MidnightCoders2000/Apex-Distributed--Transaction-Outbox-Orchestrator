@@ -60,9 +60,6 @@ independently against fakes/stubs and integrated at the end.
 - **You → Track B + Docker/infra owner.** Runs docker-compose locally, owns
   the final integration checkpoint (wiring Track A's outbox into real
   Kafka), and owns deployment (planned target: Render — see Open questions).
-  CI (GitHub Actions/Testcontainers) runs on GitHub-hosted runners, which
-  already have Docker preinstalled, so the colleague isn't blocked by CI
-  either.
 
 ---
 
