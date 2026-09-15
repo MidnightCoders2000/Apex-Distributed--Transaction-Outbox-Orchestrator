@@ -1,0 +1,22 @@
+name: Outbox Retention
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Delete outbox events older than the retention window
+        # DB_URL secret must be a libpq URI (postgresql://user:pass@host/db?sslmode=require),
+        # not the jdbc:postgresql:// string the app uses locally — see docs/retention-strategy.md.
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+        run: psql "$DB_URL" -f infra/db/retention-manual.sql

@@ -48,6 +48,11 @@ Before splitting up, agree on and write down:
    (consumers must dedupe by message id — Kafka is at-least-once, not
    exactly-once).
 
+> `outbox_event` currently exists only as a temporary bootstrap DDL owned
+> by Track B (`infra/db/outbox_event.sql`), added to unblock Epic B2
+> verification. Track A's Flyway migration in Epic A2 must supersede it —
+> delete the bootstrap file once that migration lands.
+
 Once this contract is fixed, the two tracks below can be built largely
 independently against fakes/stubs and integrated at the end.
 
@@ -111,6 +116,12 @@ manually-inserted outbox rows before Track A's API exists.
   events).
 - Story: Document outbox table cleanup/retention strategy (avoid unbounded
   growth).
+
+**Status:** restart-survival verification —
+[runbook](docs/runbooks/cdc-restart-verification.md),
+[`verify-restart-resilience.sh`](infra/debezium/verify-restart-resilience.sh).
+Retention strategy — [docs/retention-strategy.md](docs/retention-strategy.md),
+scheduled via [`.github/workflows/outbox-retention.yml`](.github/workflows/outbox-retention.yml).
 
 ### Epic B3 — Mock Downstream Services
 - Story: Mock "Service A" (payment) Kafka consumer — idempotent by message

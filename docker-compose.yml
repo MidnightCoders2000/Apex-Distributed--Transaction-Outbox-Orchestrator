@@ -33,5 +33,20 @@ services:
       CONFIG_STORAGE_TOPIC: apex_connect_configs
       OFFSET_STORAGE_TOPIC: apex_connect_offsets
       STATUS_STORAGE_TOPIC: apex_connect_status
+      # Default is 60s, which lets confirmed_flush_lsn sit still that long
+      # even under load. 5s keeps the replication slot's WAL retention
+      # window tight, which is the whole point of Epic B2.
+      OFFSET_FLUSH_INTERVAL_MS: 5000
     ports:
       - "8083:8083"
+
+  postgres:
+    image: postgres:16
+    profiles: ["cdc-test"]
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=4", "-c", "max_wal_senders=4"]
+    environment:
+      POSTGRES_USER: apex
+      POSTGRES_PASSWORD: apex
+      POSTGRES_DB: apex
+    ports:
+      - "5433:5432"
