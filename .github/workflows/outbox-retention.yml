@@ -7,7 +7,10 @@ on:
     - cron: "0 3 * * *"
   workflow_dispatch: {}
 
-permissions: {}
+# contents: read, not {}: checkout needs it the moment this repository is
+# private, and an empty token would fail there with an unobvious error.
+permissions:
+  contents: read
 
 concurrency:
   group: outbox-retention
@@ -34,22 +37,59 @@ jobs:
           DB_URL: ${{ secrets.DB_URL }}
         run: |
           set -euo pipefail
-          eval "$(python3 - <<'PY'
-          import os, shlex
-          from urllib.parse import urlsplit, parse_qs, unquote
-          u = urlsplit(os.environ["DB_URL"])
+          # Assign first, eval second. `eval "$(python3 ...)"` would be
+          # `eval ""` on a parser failure — a successful command that set -e
+          # cannot catch, letting a rejected DB_URL fall through to psql.
+          # In an assignment, command substitution propagates the exit status.
+          PGENV="$(python3 - <<'PY'
+          import os, shlex, sys
+          from urllib.parse import urlsplit, parse_qsl, unquote
+
+          url = os.environ.get("DB_URL", "")
+          if not url:
+              sys.exit("DB_URL is empty; set it as a repository secret")
+          u = urlsplit(url)
           if u.scheme not in ("postgres", "postgresql"):
-              raise SystemExit(f"DB_URL must be a libpq URI, got scheme {u.scheme!r}")
+              sys.exit(f"DB_URL must be a libpq URI, got scheme {u.scheme!r}")
+          if not u.hostname:
+              sys.exit("DB_URL has no host")
+
           env = {
-              "PGHOST": u.hostname or "",
+              "PGHOST": u.hostname,
               "PGPORT": str(u.port or 5432),
               "PGUSER": unquote(u.username or ""),
               "PGPASSWORD": unquote(u.password or ""),
               "PGDATABASE": u.path.lstrip("/"),
-              "PGSSLMODE": parse_qs(u.query).get("sslmode", ["require"])[0],
           }
+
+          # Query parameters are carried over, not dropped. Neon uses
+          # `options=endpoint%3D...` for endpoint routing on clients without
+          # SNI; silently discarding it would connect to the wrong place or
+          # not at all. Anything not in this map is a hard error rather than
+          # a silent drop.
+          QUERY_TO_ENV = {
+              "sslmode": "PGSSLMODE",
+              "sslrootcert": "PGSSLROOTCERT",
+              "sslcert": "PGSSLCERT",
+              "sslkey": "PGSSLKEY",
+              "channel_binding": "PGCHANNELBINDING",
+              "options": "PGOPTIONS",
+              "application_name": "PGAPPNAME",
+              "connect_timeout": "PGCONNECT_TIMEOUT",
+              "target_session_attrs": "PGTARGETSESSIONATTRS",
+          }
+          for key, value in parse_qsl(u.query, keep_blank_values=True):
+              if key not in QUERY_TO_ENV:
+                  sys.exit(
+                      f"DB_URL query parameter {key!r} has no PG* equivalent here; "
+                      "add it to QUERY_TO_ENV in this workflow rather than dropping it"
+                  )
+              env[QUERY_TO_ENV[key]] = value
+          env.setdefault("PGSSLMODE", "require")
+
           for k, v in env.items():
               print(f"export {k}={shlex.quote(v)}")
           PY
           )"
+          eval "$PGENV"
           psql -v ON_ERROR_STOP=1 -f infra/db/retention-manual.sql

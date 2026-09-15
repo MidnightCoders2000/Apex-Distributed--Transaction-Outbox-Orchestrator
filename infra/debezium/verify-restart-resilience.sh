@@ -78,6 +78,23 @@ wait_slot_exists() {
   done
 }
 
+# Polls until the slot reports active = t. A single read of
+# pg_replication_slots is a point-in-time sample: catching the connector
+# between reconnect retries would report `f` and fail criterion (b) for a
+# slot that is about to come back. Every other wait in this script is a
+# bounded poll; this one has to be too.
+wait_slot_active() {
+  local tries=0
+  while [ "$(get_slot_info | cut -d'|' -f2)" != "t" ]; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 30 ]; then
+      return 1
+    fi
+    sleep 2
+  done
+  return 0
+}
+
 # Waits for confirmed_flush_lsn to move past $1 (a pg_lsn string). Bounds
 # the wait since heartbeat.interval.ms=10000 is what drives flush progress
 # during otherwise-quiet periods.
@@ -137,7 +154,7 @@ if wait_connector_running; then INITIAL_RUNNING=true; fi
 wait_slot_exists || true
 
 BASELINE="$(get_slot_info)"
-IFS='|' read -r BASE_SLOT BASE_ACTIVE BASE_LSN <<< "$BASELINE"
+IFS='|' read -r _ BASE_ACTIVE BASE_LSN <<< "$BASELINE"
 echo "baseline slot: ${BASELINE:-<none>}"
 
 echo "-- inserting ${N} pre-restart markers --"
@@ -165,12 +182,16 @@ insert_markers "post"
 
 AFTER_RUNNING=false
 if wait_connector_running; then AFTER_RUNNING=true; fi
+
+SLOT_REACTIVATED=false
+if wait_slot_active; then SLOT_REACTIVATED=true; fi
+
 if [ -n "$MID_LSN" ]; then
   wait_lsn_advance "$MID_LSN" || true
 fi
 
 AFTER="$(get_slot_info)"
-IFS='|' read -r AFTER_SLOT AFTER_ACTIVE AFTER_LSN <<< "$AFTER"
+IFS='|' read -r _ AFTER_ACTIVE AFTER_LSN <<< "$AFTER"
 echo "after-restart slot: ${AFTER:-<none>}"
 
 LSN_ADVANCED=false
@@ -203,8 +224,10 @@ PASS_A=false
 # in the config, so a dropped-and-recreated slot has the same name and a
 # higher LSN too. `active` is the signal that a consumer is actually
 # attached; the no-duplicate half of (a) is what rules out a resnapshot.
+# wait_slot_active polls rather than sampling once, so a reconnect still
+# in progress is a slower PASS, not a false FAIL.
 PASS_B=false
-if [ "$AFTER_ACTIVE" = "t" ] && [ "$LSN_ADVANCED" = "true" ]; then
+if [ "$SLOT_REACTIVATED" = "true" ] && [ "$LSN_ADVANCED" = "true" ]; then
   PASS_B=true
 fi
 
@@ -217,7 +240,7 @@ fmt() { [ "$1" = "true" ] && echo "PASS" || echo "FAIL"; }
 echo ""
 echo "== results (run ${TS}) =="
 printf '%-4s %-66s %-6s\n' "a)" "pre=${PRE_COUNT}/${N} post=${POST_COUNT}/${N}, no gap/dup across restart" "$(fmt $PASS_A)"
-printf '%-4s %-66s %-6s\n' "b)" "slot active after restart (${BASE_ACTIVE:-?} -> ${AFTER_ACTIVE:-?}), flush LSN advanced" "$(fmt $PASS_B)"
+printf '%-4s %-66s %-6s\n' "b)" "slot re-activated after restart (${BASE_ACTIVE:-?} -> ${AFTER_ACTIVE:-?}), flush LSN advanced" "$(fmt $PASS_B)"
 printf '%-4s %-66s %-6s\n' "c)" "connector back to RUNNING, no FAILED task" "$(fmt $PASS_C)"
 echo ""
 

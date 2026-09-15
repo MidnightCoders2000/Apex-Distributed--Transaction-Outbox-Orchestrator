@@ -94,7 +94,7 @@ are independent signals:
 | # | Criterion | What it rules out |
 |---|-----------|--------------------|
 | a | Pre-marker count == 20 **and** post-marker count == 20, no more, no less | A gap (lost events) or duplicates (double-delivery) straddling the restart boundary — and, since a resnapshot would redeliver the pre-batch, a resnapshot masquerading as a clean resume |
-| b | After the restart the slot is `active = t` **and** `confirmed_flush_lsn` **advanced** past the baseline | A slot that exists but has no consumer attached to it, or one that is attached but making no progress |
+| b | After the restart the slot polls to `active = t` (bounded wait, not a single sample) **and** `confirmed_flush_lsn` **advanced** past the baseline | A slot that exists but has no consumer attached to it, or one that is attached but making no progress |
 | c | Connector state returns to `RUNNING` on its own, with no task in `FAILED`, both before and after the restart | A connector that is technically "up" but stuck retrying with a failed task |
 
 Two checks that were here previously were dropped as non-signals:
@@ -168,11 +168,14 @@ result.
 ## Results log
 
 Criteria (a)-(d) below use the original four-criterion numbering, recorded
-as they were run. The current script reports three criteria (see above);
-the underlying checks are unchanged apart from the two dropped
-non-signals and `active = t` replacing the slot-name comparison, so these
-runs remain valid evidence. Log the next run under the three-criterion
-numbering.
+as they were run. Read against the current three criteria:
+
+- Old (c) is today's **(a)**, and old (d) is today's **(c)** — same checks,
+  renumbered. These three runs are evidence for both.
+- Today's **(b)** is *not* covered. Old (b) compared slot names; `active =
+  t` was never asserted in these runs, so they say nothing about it.
+  **(b) is unverified until the next run**, which should be logged under
+  the three-criterion numbering.
 
 | Date | Target | Pre count | Post count | a | b | c | d | Overall |
 |------|--------|-----------|------------|---|---|---|---|---------|
@@ -182,9 +185,11 @@ numbering.
 
 Ran three times back to back (`./infra/debezium/verify-restart-resilience.sh`) to
 confirm repeatability: each run tore down and recreated the `cdc-test`
-Postgres container, and each landed on the same slot state
-(`apex_outbox_slot`, one row in `pg_replication_slots` — no duplication) and
-the same marker counts.
+Postgres container, and each landed on the same slot state (one row in
+`pg_replication_slots`, no duplication) and the same marker counts. The
+slot was named `apex_outbox_slot` in those runs, since the test still
+shared the real connector's identity then; it is `apex_outbox_slot_cdctest`
+now.
 
 Two things had to be fixed to get a genuine pass:
 

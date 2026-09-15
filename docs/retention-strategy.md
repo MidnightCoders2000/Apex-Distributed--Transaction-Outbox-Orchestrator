@@ -29,7 +29,9 @@ correct; only the first is fast.
 At demo volume a single unbatched `DELETE` is fine. Past roughly 10^6
 rows this should become a `LIMIT`-batched loop (delete N rows, commit,
 repeat) to avoid holding a long lock and to avoid a single large WAL
-spike. ## Keeping retention deletes out of the event topic
+spike.
+
+## Keeping retention deletes out of the event topic
 
 The delete itself produces WAL, which Debezium reads like any other
 change. Left alone, every nightly run would push a 14-day batch of
@@ -42,11 +44,16 @@ flag only suppresses the extra tombstone record (a message with a null
 value, emitted after a delete for log-compaction purposes); the delete
 event itself is still emitted.
 
-So the connector also sets `"skipped.operations": "d"` (see
+So the connector also sets `"skipped.operations": "d,t"` (see
 `infra/debezium/outbox-connector.json`), which drops delete events before
-they are written to the topic. Both settings are kept: `skipped.operations`
-does the actual work, and `tombstones.on.delete: false` documents that no
-tombstone is wanted either.
+they are written to the topic. The `t` is not incidental: Debezium 2.x
+defaults `skipped.operations` to `"t"` (truncates skipped), so setting it
+to `"d"` alone would drop deletes but silently re-enable truncate events.
+`"d,t"` keeps both out.
+
+Both settings are kept: `skipped.operations` does the actual work, and
+`tombstones.on.delete: false` documents that no tombstone is wanted
+either.
 
 This is safe for the outbox pattern specifically, because a row's deletion
 carries no information — the event's meaning was fully captured by the
@@ -102,11 +109,24 @@ Two details in the workflow are deliberate:
   green while deleting nothing.
 - The connection is passed as `PG*` environment variables parsed from the
   `DB_URL` secret, not as a `psql "$DB_URL"` argument. An argv connection
-  string puts the password in the runner's process list.
+  string puts the password in the runner's process list. The parser output
+  is assigned to a variable before being `eval`ed — `eval "$(python3 ...)"`
+  is `eval ""` when the parser rejects the URL, which is a *successful*
+  command that `set -e` cannot catch, so a rejected `DB_URL` would fall
+  through to `psql` anyway. Command substitution in an assignment does
+  propagate the failure.
+- Query parameters are mapped to their `PG*` equivalents rather than
+  dropped, and an unrecognised one is a hard error. Neon uses
+  `options=endpoint%3D...` for endpoint routing on clients without SNI;
+  silently discarding it would connect to the wrong place.
 
 The workflow also sets `permissions: {}` (it needs no `GITHUB_TOKEN`
 scopes), `timeout-minutes: 10`, and a `concurrency` group so a manual
-dispatch can't overlap the scheduled run. Free on a public repo. Requires `DB_URL` as a repository secret
+dispatch can't overlap the scheduled run. `permissions` is `contents:
+read` rather than `{}`: checkout needs it as soon as this repository is
+private, and it is just as minimal on a public one.
+
+Free on a public repo. Requires `DB_URL` as a repository secret
 (Settings → Secrets and variables → Actions) — the pooled Neon connection
 is fine here since this is a plain `DELETE`, not a replication
 connection.

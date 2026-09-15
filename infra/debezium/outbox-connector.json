@@ -17,6 +17,6 @@
     "snapshot.mode": "initial",
     "heartbeat.interval.ms": "10000",
     "tombstones.on.delete": "false",
-    "skipped.operations": "d"
+    "skipped.operations": "d,t"
   }
 }
