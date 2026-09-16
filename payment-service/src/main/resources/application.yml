@@ -10,6 +10,16 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+  flyway:
+    # payment-service and shipment-service migrate the same shared Neon
+    # "public" schema (each owns only its own table), so each needs its
+    # own schema-history table -- otherwise Flyway would try to validate
+    # the other service's migrations too and fail with "not resolved
+    # locally". baseline-on-migrate is required because that schema
+    # already has other services' tables in it (e.g. outbox_event), so
+    # Flyway's "is this schema empty" check would otherwise refuse to run.
+    table: payment_flyway_schema_history
+    baseline-on-migrate: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     consumer:

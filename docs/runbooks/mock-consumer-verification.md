@@ -12,10 +12,12 @@ and idempotency holds under a literal redelivery of the same CDC message.
   `./infra/debezium/register-connector.sh` — **after** the Epic B3 envelope
   fix (`value.converter.schemas.enable: false`) was added to that file; if
   it was registered before that change, re-run the script to pick it up.
-- `infra/db/payment_processed_message.sql` and
-  `infra/db/shipment_processed_message.sql` applied to the target Postgres.
 - `payment-service` and `shipment-service` both running locally
-  (`mvn spring-boot:run`), each picking up `.env` from the repo root.
+  (`mvn spring-boot:run`), each picking up `.env` from the repo root. Each
+  service now creates its own `*_processed_message` table itself via
+  Flyway on startup (`src/main/resources/db/migration`) — no manual DDL
+  step needed; `infra/db/*_processed_message.sql` is kept only as a record
+  of what was applied by hand before Flyway was adopted.
 - `docker`, `docker-compose`, `psql` available on the host.
 
 ## Running it
@@ -76,8 +78,9 @@ replayed.
   was edited but the connector was never re-registered; re-run
   `register-connector.sh`. `OutboxEventEnvelopeParser` logs a parse warning
   per message when this happens, visible in the service's own log.
-- **`ddl-auto: validate` startup failure** — one or both
-  `infra/db/*_processed_message.sql` files weren't applied yet.
+- **`ddl-auto: validate` startup failure** — the service's own Flyway
+  migration (`src/main/resources/db/migration`) failed to apply; check the
+  service's startup log for the Flyway error, not the DB directly.
 - **Test (a) or (c) times out** — the relevant service isn't actually
   running, or is pointed at the wrong Kafka listener
   (`localhost:29092`, the host-reachable listener added for Epic B3 — see
