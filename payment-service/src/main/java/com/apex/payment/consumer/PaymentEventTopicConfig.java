@@ -1,0 +1,18 @@
+package com.apex.payment.consumer;
+
+import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.config.TopicBuilder;
+
+@Configuration
+public class PaymentEventTopicConfig {
+
+    @Bean
+    public NewTopic paymentEventsTopic() {
+        return TopicBuilder.name("apex.payment.events")
+                .partitions(1)
+                .replicas(1)
+                .build();
+    }
+}
