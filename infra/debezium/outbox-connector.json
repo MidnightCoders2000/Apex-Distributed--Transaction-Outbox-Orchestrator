@@ -17,6 +17,8 @@
     "snapshot.mode": "initial",
     "heartbeat.interval.ms": "10000",
     "tombstones.on.delete": "false",
-    "skipped.operations": "d,t"
+    "skipped.operations": "d,t",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
   }
 }
