@@ -50,7 +50,7 @@ class PaymentOutboxConsumerTest {
         SendResult<String, Object> sendResult = mock(SendResult.class);
         when(kafkaTemplate.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(sendResult));
         consumer = new PaymentOutboxConsumer(envelopeParser, payloadParser, processedRepo,
-                failureInjectionPolicy, kafkaTemplate, "PaymentRequested");
+                failureInjectionPolicy, kafkaTemplate, "PaymentRequested", "apex.payment.events");
     }
 
     private ConsumerRecord<String, String> recordFor(String eventType, String payloadJson) throws Exception {

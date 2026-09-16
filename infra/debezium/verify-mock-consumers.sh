@@ -10,8 +10,9 @@
 #   - docker-compose up (kafka, kafka-connect)
 #   - infra/debezium/outbox-connector.json registered (with the Story-B3
 #     envelope fix: value.converter.schemas.enable=false)
-#   - payment-service and shipment-service both running (mvn spring-boot:run)
-#   - both infra/db/*_processed_message.sql bootstrap files applied
+#   - payment-service and shipment-service both running (mvn spring-boot:run);
+#     each creates its own *_processed_message table itself via Flyway on
+#     startup, so no manual DDL step is needed
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 

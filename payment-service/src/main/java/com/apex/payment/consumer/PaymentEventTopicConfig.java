@@ -1,6 +1,7 @@
 package com.apex.payment.consumer;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
@@ -9,8 +10,8 @@ import org.springframework.kafka.config.TopicBuilder;
 public class PaymentEventTopicConfig {
 
     @Bean
-    public NewTopic paymentEventsTopic() {
-        return TopicBuilder.name("apex.payment.events")
+    public NewTopic paymentEventsTopic(@Value("${apex.consumer.events-topic}") String eventsTopic) {
+        return TopicBuilder.name(eventsTopic)
                 .partitions(1)
                 .replicas(1)
                 .build();
@@ -24,8 +25,8 @@ public class PaymentEventTopicConfig {
      * broker's auto-create setting.
      */
     @Bean
-    public NewTopic paymentEventsDeadLetterTopic() {
-        return TopicBuilder.name("apex.payment.events.DLT")
+    public NewTopic paymentEventsDeadLetterTopic(@Value("${apex.consumer.dlt-topic}") String dltTopic) {
+        return TopicBuilder.name(dltTopic)
                 .partitions(1)
                 .replicas(1)
                 .build();

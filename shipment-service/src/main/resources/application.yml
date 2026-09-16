@@ -37,6 +37,7 @@ apex:
   consumer:
     topic: apex.public.outbox_event
     event-type: ShipmentRequested
+    events-topic: apex.shipment.events
     dlt-topic: apex.shipment.events.DLT
   failure-injection:
     rate: ${SHIPMENT_FAILURE_RATE:0.0}

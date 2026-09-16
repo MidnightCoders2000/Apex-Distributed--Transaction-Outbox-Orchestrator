@@ -37,6 +37,7 @@ apex:
   consumer:
     topic: apex.public.outbox_event
     event-type: PaymentRequested
+    events-topic: apex.payment.events
     dlt-topic: apex.payment.events.DLT
   failure-injection:
     rate: ${PAYMENT_FAILURE_RATE:0.0}

@@ -50,7 +50,7 @@ class ShipmentOutboxConsumerTest {
         SendResult<String, Object> sendResult = mock(SendResult.class);
         when(kafkaTemplate.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(sendResult));
         consumer = new ShipmentOutboxConsumer(envelopeParser, payloadParser, processedRepo,
-                failureInjectionPolicy, kafkaTemplate, "ShipmentRequested");
+                failureInjectionPolicy, kafkaTemplate, "ShipmentRequested", "apex.shipment.events");
     }
 
     private ConsumerRecord<String, String> recordFor(String eventType, String payloadJson) throws Exception {

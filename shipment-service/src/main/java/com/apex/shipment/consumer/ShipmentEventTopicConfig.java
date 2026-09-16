@@ -1,6 +1,7 @@
 package com.apex.shipment.consumer;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
@@ -9,8 +10,8 @@ import org.springframework.kafka.config.TopicBuilder;
 public class ShipmentEventTopicConfig {
 
     @Bean
-    public NewTopic shipmentEventsTopic() {
-        return TopicBuilder.name("apex.shipment.events")
+    public NewTopic shipmentEventsTopic(@Value("${apex.consumer.events-topic}") String eventsTopic) {
+        return TopicBuilder.name(eventsTopic)
                 .partitions(1)
                 .replicas(1)
                 .build();
@@ -24,8 +25,8 @@ public class ShipmentEventTopicConfig {
      * broker's auto-create setting.
      */
     @Bean
-    public NewTopic shipmentEventsDeadLetterTopic() {
-        return TopicBuilder.name("apex.shipment.events.DLT")
+    public NewTopic shipmentEventsDeadLetterTopic(@Value("${apex.consumer.dlt-topic}") String dltTopic) {
+        return TopicBuilder.name(dltTopic)
                 .partitions(1)
                 .replicas(1)
                 .build();

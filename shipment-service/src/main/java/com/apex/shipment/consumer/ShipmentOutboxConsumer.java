@@ -28,7 +28,6 @@ import java.util.concurrent.TimeoutException;
 public class ShipmentOutboxConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(ShipmentOutboxConsumer.class);
-    private static final String EVENTS_TOPIC = "apex.shipment.events";
     /**
      * Blocks this consumer thread for up to this long per record. Safe
      * against the container's 3-attempt retry (10s + FixedBackOff(1s,2) —
@@ -45,19 +44,22 @@ public class ShipmentOutboxConsumer {
     private final ShipmentFailureInjectionPolicy failureInjectionPolicy;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final String eventType;
+    private final String eventsTopic;
 
     public ShipmentOutboxConsumer(OutboxEventEnvelopeParser envelopeParser,
                                    ShipmentRequestedPayloadParser payloadParser,
                                    ShipmentProcessedMessageRepository processedRepo,
                                    ShipmentFailureInjectionPolicy failureInjectionPolicy,
                                    KafkaTemplate<String, Object> kafkaTemplate,
-                                   @Value("${apex.consumer.event-type}") String eventType) {
+                                   @Value("${apex.consumer.event-type}") String eventType,
+                                   @Value("${apex.consumer.events-topic}") String eventsTopic) {
         this.envelopeParser = envelopeParser;
         this.payloadParser = payloadParser;
         this.processedRepo = processedRepo;
         this.failureInjectionPolicy = failureInjectionPolicy;
         this.kafkaTemplate = kafkaTemplate;
         this.eventType = eventType;
+        this.eventsTopic = eventsTopic;
     }
 
     /**
@@ -111,7 +113,7 @@ public class ShipmentOutboxConsumer {
 
     private void publish(Object event, String transactionId) {
         try {
-            kafkaTemplate.send(EVENTS_TOPIC, transactionId, event).get(PUBLISH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            kafkaTemplate.send(eventsTopic, transactionId, event).get(PUBLISH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted while publishing " + event.getClass().getSimpleName()
