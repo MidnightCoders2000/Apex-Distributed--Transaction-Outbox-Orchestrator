@@ -13,19 +13,53 @@ DELETE FROM outbox_event
 WHERE created_at < now() - interval '14 days';
 ```
 
-See `infra/db/retention-manual.sql` (uses
-`idx_outbox_event_created_at` from `infra/db/outbox_event.sql`, so this is
-an index scan, not a sequential scan).
+See `infra/db/retention-manual.sql`. It wraps the `DELETE` in a CTE and
+selects `count(*)` over `RETURNING`, so each run prints the number of rows
+it removed — a scheduled job that silently deletes nothing looks identical
+to one that works, otherwise.
+
+`idx_outbox_event_created_at` (from `infra/db/outbox_event.sql`) is
+available for the `created_at` predicate, but whether the planner uses it
+depends on selectivity: on steady-state runs, where only a small tail of
+the table is older than 14 days, an index scan is likely; on the very
+first run after a long backlog, when most of the table qualifies, a
+sequential scan is the cheaper plan and Postgres will pick it. Both are
+correct; only the first is fast.
 
 At demo volume a single unbatched `DELETE` is fine. Past roughly 10^6
 rows this should become a `LIMIT`-batched loop (delete N rows, commit,
 repeat) to avoid holding a long lock and to avoid a single large WAL
-spike. Note that the delete itself produces WAL, which Debezium will
-stream like any other change — that's exactly why the connector sets
-`"tombstones.on.delete": "false"` (see
-`infra/debezium/outbox-connector.json`): without it, every retention run
-would emit a Kafka tombstone per deleted row into the event topic, which
-downstream consumers have no reason to see.
+spike.
+
+## Keeping retention deletes out of the event topic
+
+The delete itself produces WAL, which Debezium reads like any other
+change. Left alone, every nightly run would push a 14-day batch of
+`op: "d"` events into `apex.public.outbox_event`, where the Epic B3 mock
+consumers would receive them as ordinary events — housekeeping noise
+masquerading as domain events.
+
+`"tombstones.on.delete": "false"` alone does **not** prevent this. That
+flag only suppresses the extra tombstone record (a message with a null
+value, emitted after a delete for log-compaction purposes); the delete
+event itself is still emitted.
+
+So the connector also sets `"skipped.operations": "d,t"` (see
+`infra/debezium/outbox-connector.json`), which drops delete events before
+they are written to the topic. The `t` is not incidental: Debezium 2.x
+defaults `skipped.operations` to `"t"` (truncates skipped), so setting it
+to `"d"` alone would drop deletes but silently re-enable truncate events.
+`"d,t"` keeps both out.
+
+Both settings are kept: `skipped.operations` does the actual work, and
+`tombstones.on.delete: false` documents that no tombstone is wanted
+either.
+
+This is safe for the outbox pattern specifically, because a row's deletion
+carries no information — the event's meaning was fully captured by the
+insert. If a future connector ever needs to capture real deletes from a
+different table, it should be a separate connector rather than a relaxation
+of this one.
 
 ## Why deleting is safe
 
@@ -61,11 +95,38 @@ of the value to keep in sync.
 (`.github/workflows/outbox-retention.yml`), running
 
 ```
-psql "$DB_URL" -f infra/db/retention-manual.sql
+psql -v ON_ERROR_STOP=1 -f infra/db/retention-manual.sql
 ```
 
-on `cron: "0 3 * * *"`, plus `workflow_dispatch` so it can be triggered by
-hand. Free on a public repo. Requires `DB_URL` as a repository secret
+on `cron: "0 3 * * *"` — **GitHub cron is always UTC**, with no repository
+timezone setting and no DST adjustment, so this is 03:00 UTC year-round —
+plus `workflow_dispatch` so it can be triggered by hand.
+
+Two details in the workflow are deliberate:
+
+- `ON_ERROR_STOP=1`. Without it `psql` exits 0 even when the script hits a
+  SQL error (missing table, revoked privilege), so the job would report
+  green while deleting nothing.
+- The connection is passed as `PG*` environment variables parsed from the
+  `DB_URL` secret, not as a `psql "$DB_URL"` argument. An argv connection
+  string puts the password in the runner's process list. The parser output
+  is assigned to a variable before being `eval`ed — `eval "$(python3 ...)"`
+  is `eval ""` when the parser rejects the URL, which is a *successful*
+  command that `set -e` cannot catch, so a rejected `DB_URL` would fall
+  through to `psql` anyway. Command substitution in an assignment does
+  propagate the failure.
+- Query parameters are mapped to their `PG*` equivalents rather than
+  dropped, and an unrecognised one is a hard error. Neon uses
+  `options=endpoint%3D...` for endpoint routing on clients without SNI;
+  silently discarding it would connect to the wrong place.
+
+The workflow also sets `permissions: {}` (it needs no `GITHUB_TOKEN`
+scopes), `timeout-minutes: 10`, and a `concurrency` group so a manual
+dispatch can't overlap the scheduled run. `permissions` is `contents:
+read` rather than `{}`: checkout needs it as soon as this repository is
+private, and it is just as minimal on a public one.
+
+Free on a public repo. Requires `DB_URL` as a repository secret
 (Settings → Secrets and variables → Actions) — the pooled Neon connection
 is fine here since this is a plain `DELETE`, not a replication
 connection.
@@ -103,6 +164,16 @@ If that's ever done, retire the GitHub Actions workflow so retention
 isn't running twice.
 
 ## Follow-up
+
+**`heartbeat.action.query`.** `outbox_event` is the only captured table,
+while the rest of Track A's tables stay busy. Debezium only advances
+`confirmed_flush_lsn` when it has something to acknowledge, so during a
+quiet period on `outbox_event` the slot can hold WAL generated by every
+other table — `heartbeat.interval.ms: 10000` sends heartbeats but has
+nothing to commit against. The fix is `heartbeat.action.query` (a tiny
+write to a dedicated heartbeat table on each heartbeat, which gives the
+connector a captured change to flush past). Worth adding once Track A's
+write volume is real; not needed at current demo volume.
 
 When Track A lands the Flyway migration in Epic A2, `idx_outbox_event_created_at`
 moves into that migration (replacing the temporary DDL in

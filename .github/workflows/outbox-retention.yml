@@ -2,21 +2,98 @@ name: Outbox Retention
 
 on:
   schedule:
+    # 03:00 UTC daily. GitHub cron is always UTC — it does not follow any
+    # repository or user timezone, and does not shift for DST.
     - cron: "0 3 * * *"
   workflow_dispatch: {}
+
+# contents: read, not {}: checkout needs it the moment this repository is
+# private, and an empty token would fail there with an unobvious error.
+permissions:
+  contents: read
+
+concurrency:
+  group: outbox-retention
+  cancel-in-progress: false
 
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install psql client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
+      # ubuntu-latest ships psql, so there is nothing to install.
       - name: Delete outbox events older than the retention window
         # DB_URL secret must be a libpq URI (postgresql://user:pass@host/db?sslmode=require),
         # not the jdbc:postgresql:// string the app uses locally — see docs/retention-strategy.md.
+        #
+        # The URI is split into PG* environment variables rather than passed
+        # as a psql argument: an argv connection string puts the password in
+        # the runner's process list, visible to anything that can read `ps`.
+        # ON_ERROR_STOP=1 makes psql exit non-zero on a SQL error (missing
+        # table, revoked privilege) — without it the step is green regardless.
         env:
           DB_URL: ${{ secrets.DB_URL }}
-        run: psql "$DB_URL" -f infra/db/retention-manual.sql
+        run: |
+          set -euo pipefail
+          # Assign first, eval second. `eval "$(python3 ...)"` would be
+          # `eval ""` on a parser failure — a successful command that set -e
+          # cannot catch, letting a rejected DB_URL fall through to psql.
+          # In an assignment, command substitution propagates the exit status.
+          # -X utf8: the script below is deliberately ASCII, but python reads
+          # stdin in the locale encoding, so a stray non-ASCII character added
+          # later would be a SyntaxError on a non-UTF-8 runner. The flag makes
+          # that structural rather than a convention to remember.
+          PGENV="$(python3 -X utf8 - <<'PY'
+          import os, shlex, sys
+          from urllib.parse import urlsplit, parse_qsl, unquote
+
+          url = os.environ.get("DB_URL", "")
+          if not url:
+              sys.exit("DB_URL is empty; set it as a repository secret")
+          u = urlsplit(url)
+          if u.scheme not in ("postgres", "postgresql"):
+              sys.exit(f"DB_URL must be a libpq URI, got scheme {u.scheme!r}")
+          if not u.hostname:
+              sys.exit("DB_URL has no host")
+
+          env = {
+              "PGHOST": u.hostname,
+              "PGPORT": str(u.port or 5432),
+              "PGUSER": unquote(u.username or ""),
+              "PGPASSWORD": unquote(u.password or ""),
+              "PGDATABASE": u.path.lstrip("/"),
+          }
+
+          # Query parameters are carried over, not dropped. Neon uses
+          # `options=endpoint%3D...` for endpoint routing on clients without
+          # SNI; silently discarding it would connect to the wrong place or
+          # not at all. Anything not in this map is a hard error rather than
+          # a silent drop.
+          QUERY_TO_ENV = {
+              "sslmode": "PGSSLMODE",
+              "sslrootcert": "PGSSLROOTCERT",
+              "sslcert": "PGSSLCERT",
+              "sslkey": "PGSSLKEY",
+              "channel_binding": "PGCHANNELBINDING",
+              "options": "PGOPTIONS",
+              "application_name": "PGAPPNAME",
+              "connect_timeout": "PGCONNECT_TIMEOUT",
+              "target_session_attrs": "PGTARGETSESSIONATTRS",
+          }
+          for key, value in parse_qsl(u.query, keep_blank_values=True):
+              if key not in QUERY_TO_ENV:
+                  sys.exit(
+                      f"DB_URL query parameter {key!r} has no PG* equivalent here; "
+                      "add it to QUERY_TO_ENV in this workflow rather than dropping it"
+                  )
+              env[QUERY_TO_ENV[key]] = value
+          env.setdefault("PGSSLMODE", "require")
+
+          for k, v in env.items():
+              print(f"export {k}={shlex.quote(v)}")
+          PY
+          )"
+          eval "$PGENV"
+          psql -v ON_ERROR_STOP=1 -f infra/db/retention-manual.sql
