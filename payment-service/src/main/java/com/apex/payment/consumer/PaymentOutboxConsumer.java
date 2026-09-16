@@ -27,6 +27,14 @@ public class PaymentOutboxConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentOutboxConsumer.class);
     private static final String EVENTS_TOPIC = "apex.payment.events";
+    /**
+     * Blocks this consumer thread for up to this long per record. Safe
+     * against the container's 3-attempt retry (10s + FixedBackOff(1s,2) —
+     * see KafkaConsumerConfig) versus Kafka's default max.poll.interval.ms
+     * of 5 minutes; re-check this budget before raising concurrency/batch
+     * size or lowering max.poll.interval.ms, since a stuck broker could
+     * then push a poll past the rebalance timeout.
+     */
     private static final long PUBLISH_TIMEOUT_SECONDS = 10L;
 
     private final OutboxEventEnvelopeParser envelopeParser;

@@ -3,7 +3,6 @@ package com.apex.payment.consumer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringSerializer;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,11 +25,18 @@ import java.util.Map;
  * partition; with retry-then-skip and no dead letter, a record that
  * exhausts retries would be dropped with nothing but a log line.
  *
- * The dead-letter template is a dedicated String/String producer, not the
- * business KafkaTemplate<String, Object> (which serializes values as JSON):
- * the value being recovered here is the raw CDC envelope string consumed
- * off apex.public.outbox_event, not a domain event, so a JSON serializer
- * would double-encode it.
+ * The dead-letter producer is built inline, NOT exposed as a {@code @Bean}:
+ * KafkaAutoConfiguration guards its own business KafkaTemplate bean with
+ * {@code @ConditionalOnMissingBean(KafkaTemplate.class)}, which matches by
+ * raw type regardless of generics, so a second {@code KafkaTemplate} bean
+ * of any generic shape silently disables the autoconfigured one — breaking
+ * every other constructor in this service that wants
+ * {@code KafkaTemplate<String, Object>} (see PaymentOutboxConsumer). It is
+ * still a dedicated String/String producer, not the business
+ * KafkaTemplate<String, Object> (which serializes values as JSON): the
+ * value being recovered here is the raw CDC envelope string consumed off
+ * apex.public.outbox_event, not a domain event, so a JSON serializer would
+ * double-encode it. See KafkaConsumerConfigTest for the regression test.
  */
 @Configuration
 public class KafkaConsumerConfig {
@@ -38,23 +44,19 @@ public class KafkaConsumerConfig {
     private static final String DLT_TOPIC = "apex.payment.events.DLT";
 
     @Bean
-    public KafkaTemplate<String, String> deadLetterKafkaTemplate(
+    public ConcurrentKafkaListenerContainerFactory<Object, Object> kafkaListenerContainerFactory(
+            ConsumerFactory<Object, Object> consumerFactory,
             @Value("${spring.kafka.bootstrap-servers}") String bootstrapServers) {
         Map<String, Object> producerProps = Map.of(
                 ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers,
                 ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class,
                 ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
-        return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(producerProps));
-    }
+        KafkaTemplate<String, String> dltTemplate = new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(producerProps));
 
-    @Bean
-    public ConcurrentKafkaListenerContainerFactory<Object, Object> kafkaListenerContainerFactory(
-            ConsumerFactory<Object, Object> consumerFactory,
-            @Qualifier("deadLetterKafkaTemplate") KafkaTemplate<String, String> deadLetterKafkaTemplate) {
         ConcurrentKafkaListenerContainerFactory<Object, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory);
         DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
-                deadLetterKafkaTemplate, (record, ex) -> new TopicPartition(DLT_TOPIC, -1));
+                dltTemplate, (record, ex) -> new TopicPartition(DLT_TOPIC, -1));
         factory.setCommonErrorHandler(new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 2)));
         return factory;
     }

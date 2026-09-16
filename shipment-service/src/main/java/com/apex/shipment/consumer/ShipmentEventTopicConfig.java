@@ -15,4 +15,18 @@ public class ShipmentEventTopicConfig {
                 .replicas(1)
                 .build();
     }
+
+    /**
+     * Matches KafkaConsumerConfig's DLT_TOPIC. Declared explicitly rather
+     * than relying on auto.create.topics.enable, for the same reason the
+     * primary topic above is: consistent behavior regardless of the
+     * broker's auto-create setting.
+     */
+    @Bean
+    public NewTopic shipmentEventsDeadLetterTopic() {
+        return TopicBuilder.name("apex.shipment.events.DLT")
+                .partitions(1)
+                .replicas(1)
+                .build();
+    }
 }

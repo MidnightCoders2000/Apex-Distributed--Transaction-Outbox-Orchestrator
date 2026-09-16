@@ -15,4 +15,18 @@ public class PaymentEventTopicConfig {
                 .replicas(1)
                 .build();
     }
+
+    /**
+     * Matches KafkaConsumerConfig's DLT_TOPIC. Declared explicitly rather
+     * than relying on auto.create.topics.enable, for the same reason the
+     * primary topic above is: consistent behavior regardless of the
+     * broker's auto-create setting.
+     */
+    @Bean
+    public NewTopic paymentEventsDeadLetterTopic() {
+        return TopicBuilder.name("apex.payment.events.DLT")
+                .partitions(1)
+                .replicas(1)
+                .build();
+    }
 }
