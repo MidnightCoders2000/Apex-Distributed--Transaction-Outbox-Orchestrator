@@ -1,4 +1,4 @@
-package com.apex.shipment.consumer;
+package com.apex.messaging;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.JsonNode;

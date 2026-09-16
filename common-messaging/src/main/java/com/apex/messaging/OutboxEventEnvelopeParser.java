@@ -1,4 +1,4 @@
-package com.apex.payment.consumer;
+package com.apex.messaging;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,11 +36,13 @@ public class OutboxEventEnvelopeParser {
      *
      * {@code "r"} (connector snapshot/re-snapshot read) is accepted on the
      * same footing as {@code "c"} (insert): intentional, so a re-snapshot
-     * replays historical PaymentRequested rows through the same idempotency
+     * replays historical *Requested rows through the same idempotency
      * check rather than silently skipping them. This only holds while the
-     * idempotency table's rows survive — bootstrap-db/*.sql is applied by
-     * hand via CREATE TABLE IF NOT EXISTS, not a tracked migration, so
-     * dropping/recreating that table would let a re-snapshot double-publish.
+     * idempotency table's rows survive — the bootstrap DDL for those
+     * tables is now a tracked Flyway migration (see each service's
+     * src/main/resources/db/migration), so a dropped/recreated table would
+     * still let a re-snapshot double-publish, just no longer via manual
+     * DDL drift.
      */
     public boolean isRelevant(OutboxEnvelope envelope, String eventType) {
         if (envelope.after() == null) {

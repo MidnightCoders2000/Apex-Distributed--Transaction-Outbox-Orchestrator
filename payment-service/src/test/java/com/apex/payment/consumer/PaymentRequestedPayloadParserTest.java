@@ -1,6 +1,8 @@
 package com.apex.payment.consumer;
 
 import com.apex.events.PaymentRequested;
+import com.apex.messaging.OutboxEnvelope;
+import com.apex.messaging.PayloadDeserializationException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 

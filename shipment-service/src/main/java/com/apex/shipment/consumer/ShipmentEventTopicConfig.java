@@ -17,7 +17,8 @@ public class ShipmentEventTopicConfig {
     }
 
     /**
-     * Matches KafkaConsumerConfig's DLT_TOPIC. Declared explicitly rather
+     * Matches apex.consumer.dlt-topic (see application.yml and
+     * com.apex.messaging.KafkaConsumerConfig). Declared explicitly rather
      * than relying on auto.create.topics.enable, for the same reason the
      * primary topic above is: consistent behavior regardless of the
      * broker's auto-create setting.

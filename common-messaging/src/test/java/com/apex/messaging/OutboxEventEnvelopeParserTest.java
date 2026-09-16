@@ -1,4 +1,4 @@
-package com.apex.payment.consumer;
+package com.apex.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -15,21 +15,21 @@ class OutboxEventEnvelopeParserTest {
     @Test
     void relevantEventTypeIsRecognized() {
         String json = """
-                {"before":null,"after":{"id":"11111111-1111-1111-1111-111111111111","event_type":"PaymentRequested","payload":"{}"},"op":"c"}
+                {"before":null,"after":{"id":"11111111-1111-1111-1111-111111111111","event_type":"SomethingRequested","payload":"{}"},"op":"c"}
                 """;
         Optional<OutboxEnvelope> envelope = parser.parse(json);
         assertThat(envelope).isPresent();
-        assertThat(parser.isRelevant(envelope.get(), "PaymentRequested")).isTrue();
+        assertThat(parser.isRelevant(envelope.get(), "SomethingRequested")).isTrue();
     }
 
     @Test
     void irrelevantEventTypeIsFiltered() {
         String json = """
-                {"before":null,"after":{"id":"11111111-1111-1111-1111-111111111111","event_type":"ShipmentRequested","payload":"{}"},"op":"c"}
+                {"before":null,"after":{"id":"11111111-1111-1111-1111-111111111111","event_type":"SomethingElseRequested","payload":"{}"},"op":"c"}
                 """;
         Optional<OutboxEnvelope> envelope = parser.parse(json);
         assertThat(envelope).isPresent();
-        assertThat(parser.isRelevant(envelope.get(), "PaymentRequested")).isFalse();
+        assertThat(parser.isRelevant(envelope.get(), "SomethingRequested")).isFalse();
     }
 
     @Test
@@ -45,16 +45,26 @@ class OutboxEventEnvelopeParserTest {
                 """;
         Optional<OutboxEnvelope> envelope = parser.parse(json);
         assertThat(envelope).isPresent();
-        assertThat(parser.isRelevant(envelope.get(), "PaymentRequested")).isFalse();
+        assertThat(parser.isRelevant(envelope.get(), "SomethingRequested")).isFalse();
     }
 
     @Test
     void nullOpIsNotRelevant() {
         String json = """
-                {"before":null,"after":{"id":"11111111-1111-1111-1111-111111111111","event_type":"PaymentRequested","payload":"{}"},"op":null}
+                {"before":null,"after":{"id":"11111111-1111-1111-1111-111111111111","event_type":"SomethingRequested","payload":"{}"},"op":null}
                 """;
         Optional<OutboxEnvelope> envelope = parser.parse(json);
         assertThat(envelope).isPresent();
-        assertThat(parser.isRelevant(envelope.get(), "PaymentRequested")).isFalse();
+        assertThat(parser.isRelevant(envelope.get(), "SomethingRequested")).isFalse();
+    }
+
+    @Test
+    void reSnapshotOpIsTreatedSameAsCreate() {
+        String json = """
+                {"before":null,"after":{"id":"11111111-1111-1111-1111-111111111111","event_type":"SomethingRequested","payload":"{}"},"op":"r"}
+                """;
+        Optional<OutboxEnvelope> envelope = parser.parse(json);
+        assertThat(envelope).isPresent();
+        assertThat(parser.isRelevant(envelope.get(), "SomethingRequested")).isTrue();
     }
 }

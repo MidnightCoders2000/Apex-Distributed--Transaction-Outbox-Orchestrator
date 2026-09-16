@@ -6,6 +6,7 @@ the two-track work split.
 ## Modules
 
 - `common-events` — shared event/command contracts (the Day-0 contract, in code).
+- `common-messaging` — shared outbox/Kafka-consumer plumbing used by the mock downstream services.
 - `orchestrator-service` — REST API, idempotency, transactional outbox, saga orchestrator.
 - `payment-service` — mock downstream payment consumer.
 - `shipment-service` — mock downstream shipment consumer.

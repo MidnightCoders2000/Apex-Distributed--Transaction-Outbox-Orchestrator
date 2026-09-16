@@ -3,6 +3,8 @@ package com.apex.payment.consumer;
 import com.apex.events.PaymentFailed;
 import com.apex.events.PaymentRequested;
 import com.apex.events.PaymentReserved;
+import com.apex.messaging.OutboxEnvelope;
+import com.apex.messaging.OutboxEventEnvelopeParser;
 import com.apex.payment.idempotency.PaymentProcessedMessageRepository;
 import com.apex.payment.idempotency.ProcessedMessage;
 import com.apex.payment.injection.PaymentFailureInjectionPolicy;

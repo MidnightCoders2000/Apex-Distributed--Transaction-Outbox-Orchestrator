@@ -1,4 +1,4 @@
-package com.apex.payment.consumer;
+package com.apex.messaging;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -15,17 +15,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * KafkaAutoConfiguration guards its business KafkaTemplate bean with
  * {@code @ConditionalOnMissingBean(KafkaTemplate.class)}, which matches by
  * raw type regardless of generics, so that second bean silently disabled
- * the autoconfigured one — breaking every constructor in this service that
- * wants {@code KafkaTemplate<String, Object>} (PaymentOutboxConsumer) with
- * an UnsatisfiedDependencyException at startup. No other test in this
- * module starts an ApplicationContext, so nothing else would catch this.
+ * the autoconfigured one — breaking every constructor in a consuming
+ * service that wants {@code KafkaTemplate<String, Object>} with an
+ * UnsatisfiedDependencyException at startup.
  */
 class KafkaConsumerConfigTest {
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(KafkaAutoConfiguration.class))
             .withUserConfiguration(KafkaConsumerConfig.class, BusinessTemplateConsumer.class)
-            .withPropertyValues("spring.kafka.bootstrap-servers=localhost:29092");
+            .withPropertyValues(
+                    "spring.kafka.bootstrap-servers=localhost:29092",
+                    "apex.consumer.dlt-topic=apex.test.events.DLT");
 
     @Test
     void businessKafkaTemplateInjectionPointStillResolvesAlongsideDltRecoverer() {

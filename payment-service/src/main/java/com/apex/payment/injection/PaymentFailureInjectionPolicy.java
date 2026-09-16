@@ -1,5 +1,6 @@
 package com.apex.payment.injection;
 
+import com.apex.messaging.FailureInjectionProperties;
 import org.springframework.stereotype.Component;
 
 import java.util.random.RandomGenerator;

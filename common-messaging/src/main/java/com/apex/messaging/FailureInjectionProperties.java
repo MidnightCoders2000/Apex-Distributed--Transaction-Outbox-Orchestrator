@@ -1,4 +1,4 @@
-package com.apex.shipment.injection;
+package com.apex.messaging;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

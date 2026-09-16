@@ -27,6 +27,7 @@ apex:
   consumer:
     topic: apex.public.outbox_event
     event-type: ShipmentRequested
+    dlt-topic: apex.shipment.events.DLT
   failure-injection:
     rate: ${SHIPMENT_FAILURE_RATE:0.0}
     trigger-account-ids: ${SHIPMENT_FAILURE_TRIGGER_ACCOUNT_IDS:}

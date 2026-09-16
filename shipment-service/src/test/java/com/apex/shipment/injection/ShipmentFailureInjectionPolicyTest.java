@@ -1,5 +1,6 @@
 package com.apex.shipment.injection;
 
+import com.apex.messaging.FailureInjectionProperties;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

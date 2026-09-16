@@ -2,6 +2,8 @@ package com.apex.shipment.consumer;
 
 import com.apex.events.ShipmentFailed;
 import com.apex.events.ShipmentReserved;
+import com.apex.messaging.OutboxEventEnvelopeParser;
+import com.apex.messaging.PayloadDeserializationException;
 import com.apex.shipment.idempotency.ProcessedMessage;
 import com.apex.shipment.idempotency.ShipmentProcessedMessageRepository;
 import com.apex.shipment.injection.ShipmentFailureInjectionPolicy;

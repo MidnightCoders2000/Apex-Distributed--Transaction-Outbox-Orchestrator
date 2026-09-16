@@ -1,6 +1,8 @@
 package com.apex.shipment.consumer;
 
 import com.apex.events.ShipmentRequested;
+import com.apex.messaging.OutboxEnvelope;
+import com.apex.messaging.PayloadDeserializationException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
