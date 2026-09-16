@@ -173,9 +173,10 @@ as they were run. Read against the current three criteria:
 - Old (c) is today's **(a)**, and old (d) is today's **(c)** — same checks,
   renumbered. These three runs are evidence for both.
 - Today's **(b)** is *not* covered. Old (b) compared slot names; `active =
-  t` was never asserted in these runs, so they say nothing about it.
-  **(b) is unverified until the next run**, which should be logged under
-  the three-criterion numbering.
+  t` was never asserted in these runs, so they say nothing about it. See
+  "First run under the three-criterion numbering" below, where (b) is
+  exercised directly — including a negative control confirming it can
+  fail as well as pass.
 
 | Date | Target | Pre count | Post count | a | b | c | d | Overall |
 |------|--------|-----------|------------|---|---|---|---|---------|
@@ -211,4 +212,44 @@ Two things had to be fixed to get a genuine pass:
   `OFFSET_FLUSH_INTERVAL_MS: 5000` on the `kafka-connect` service in
   `docker-compose.yml`, and the script now waits for
   `confirmed_flush_lsn` to advance past each batch before moving on.
+
+### First run under the three-criterion numbering
+
+| Date | Target | Pre count | Post count | a | b | c | Overall |
+|------|--------|-----------|------------|---|---|---|---------|
+| 2026-09-15 | local (cdc-test) | 20/20 | 20/20 | PASS | PASS | PASS | **PASS** |
+
+Criterion (b) reported `slot re-activated (t -> t), LSN advanced past
+restart` — the first time it has actually been exercised rather than
+reasoned about.
+
+**Negative control.** A PASS is only meaningful if the same script can
+also FAIL for the right reason, so it was run once more with the
+connector deleted immediately before `docker-compose restart postgres`
+(temporary edit to the script, reverted afterward — not present in the
+committed version):
+
+| Date | Target | Pre count | Post count | a | b | c | Overall |
+|------|--------|-----------|------------|---|---|---|---------|
+| 2026-09-15 | local (cdc-test), deliberately broken | 0/20 | 0/20 | FAIL | FAIL | FAIL | **FAIL** |
+
+With the connector gone, criterion (b) read `slot re-activated (t -> f),
+LSN advanced past restart` — `active` stayed `f` and
+`confirmed_flush_lsn` sat at its pre-restart value, so the check failed
+for the reason it exists to catch, not by accident. Confirms (b) has
+discriminating power in both directions, not just a PASS it can't help
+but produce.
+
+### Retention against Neon
+
+Run separately from the restart test, against the real database (not
+`cdc-test`): a canary row was inserted with `created_at` 20 days in the
+past, `infra/db/retention-manual.sql` was run via `psql`, and it reported
+`outbox_rows_deleted = 1` — exactly the canary, nothing else. A follow-up
+count confirmed the table's one real row (`created_at` inside the 14-day
+window) was untouched. The GitHub Actions workflow
+(`.github/workflows/outbox-retention.yml`) was also triggered manually via
+`workflow_dispatch` against the `DB_URL` repository secret and completed
+green, exercising the fail-closed URL-parsing path end-to-end rather than
+just the `psql` step in isolation.
 
