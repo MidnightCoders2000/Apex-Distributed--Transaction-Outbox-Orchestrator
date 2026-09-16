@@ -133,6 +133,19 @@ scheduled via [`.github/workflows/outbox-retention.yml`](.github/workflows/outbo
 - Story: Consumers publish their own success/failure events back for the
   Orchestrator to react to.
 
+**Status:** payment-service and shipment-service both consume
+`apex.public.outbox_event` directly (filtered by `event_type`, configurable
+via `apex.consumer.*`), are idempotent by `outbox_event.id`, support
+configurable failure injection (rate + trigger-account-ids), and publish
+`PaymentReserved`/`PaymentFailed` and `ShipmentReserved`/`ShipmentFailed` to
+`apex.payment.events`/`apex.shipment.events`. Verification —
+[runbook](docs/runbooks/mock-consumer-verification.md),
+[`verify-mock-consumers.sh`](infra/debezium/verify-mock-consumers.sh).
+Consuming a compensation command (for Epic S1's rollback test) is
+explicitly out of scope here — see the runbook and inline code comments;
+that lands back on Track B once Epic A3 exists and publishes to
+`apex.saga.commands`.
+
 ---
 
 ## Shared — Integration & Delivery

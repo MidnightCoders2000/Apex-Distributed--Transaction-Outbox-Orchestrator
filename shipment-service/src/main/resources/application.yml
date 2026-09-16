@@ -10,8 +10,38 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+  flyway:
+    # payment-service and shipment-service migrate the same shared Neon
+    # "public" schema (each owns only its own table), so each needs its
+    # own schema-history table -- otherwise Flyway would try to validate
+    # the other service's migrations too and fail with "not resolved
+    # locally". baseline-on-migrate is required because that schema
+    # already has other services' tables in it (e.g. outbox_event), so
+    # Flyway's "is this schema empty" check would otherwise refuse to run.
+    table: shipment_flyway_schema_history
+    baseline-on-migrate: true
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    consumer:
+      group-id: apex-shipment-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        spring.json.add.type.headers: false
+
+apex:
+  consumer:
+    topic: apex.public.outbox_event
+    event-type: ShipmentRequested
+    events-topic: apex.shipment.events
+    dlt-topic: apex.shipment.events.DLT
+  failure-injection:
+    rate: ${SHIPMENT_FAILURE_RATE:0.0}
+    trigger-account-ids: ${SHIPMENT_FAILURE_TRIGGER_ACCOUNT_IDS:}
 
 server:
   port: 8082

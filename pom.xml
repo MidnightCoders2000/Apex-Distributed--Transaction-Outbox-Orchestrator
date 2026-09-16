@@ -26,6 +26,7 @@
 
   <modules>
     <module>common-events</module>
+    <module>common-messaging</module>
     <module>orchestrator-service</module>
     <module>payment-service</module>
     <module>shipment-service</module>
