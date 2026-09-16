@@ -1,6 +1,7 @@
 package com.apex.payment.consumer;
 
 import com.apex.events.PaymentRequested;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
@@ -14,7 +15,11 @@ public class PaymentRequestedPayloadParser {
     }
 
     public PaymentRequested parse(OutboxEnvelope envelope) {
-        String payloadJson = envelope.after().get("payload").asText();
+        JsonNode payloadNode = envelope.after().get("payload");
+        if (payloadNode == null || payloadNode.isNull()) {
+            throw new PayloadDeserializationException("Outbox record is missing required field 'payload'", null);
+        }
+        String payloadJson = payloadNode.asText();
         try {
             return objectMapper.readValue(payloadJson, PaymentRequested.class);
         } catch (Exception e) {

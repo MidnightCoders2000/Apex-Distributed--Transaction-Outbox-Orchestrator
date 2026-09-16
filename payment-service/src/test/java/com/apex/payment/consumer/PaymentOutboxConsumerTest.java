@@ -11,9 +11,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -38,9 +41,12 @@ class PaymentOutboxConsumerTest {
     private PaymentOutboxConsumer consumer;
 
     @BeforeEach
+    @SuppressWarnings("unchecked")
     void setUp() {
         processedRepo = mock(PaymentProcessedMessageRepository.class);
         failureInjectionPolicy = mock(PaymentFailureInjectionPolicy.class);
+        SendResult<String, Object> sendResult = mock(SendResult.class);
+        when(kafkaTemplate.send(any(), any(), any())).thenReturn(CompletableFuture.completedFuture(sendResult));
         consumer = new PaymentOutboxConsumer(envelopeParser, payloadParser, processedRepo,
                 failureInjectionPolicy, kafkaTemplate, "PaymentRequested");
     }
@@ -110,5 +116,37 @@ class PaymentOutboxConsumerTest {
         consumer.onMessage(record);
 
         verify(kafkaTemplate).send(eq("apex.payment.events"), eq("t1"), any(PaymentReserved.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void failedPublishPropagatesAndDoesNotMarkProcessed() throws Exception {
+        when(processedRepo.existsById(MESSAGE_ID)).thenReturn(false);
+        when(failureInjectionPolicy.shouldFail("a1")).thenReturn(false);
+        CompletableFuture<SendResult<String, Object>> failedFuture = new CompletableFuture<>();
+        failedFuture.completeExceptionally(new RuntimeException("broker unavailable"));
+        when(kafkaTemplate.send(any(), any(), any())).thenReturn(failedFuture);
+        ConsumerRecord<String, String> record = recordFor("PaymentRequested",
+                "{\"correlationId\":\"c1\",\"transactionId\":\"t1\",\"accountId\":\"a1\",\"amount\":1}");
+
+        assertThatThrownBy(() -> consumer.onMessage(record)).isInstanceOf(IllegalStateException.class);
+
+        verify(processedRepo, never()).save(any());
+    }
+
+    @Test
+    void missingIdFieldThrowsInsteadOfNpe() {
+        String value = "{\"after\":{\"event_type\":\"PaymentRequested\",\"payload\":\"{}\"},\"op\":\"c\"}";
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("apex.public.outbox_event", 0, 0, "key", value);
+
+        assertThatThrownBy(() -> consumer.onMessage(record)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void missingPayloadFieldThrowsInsteadOfNpe() {
+        String value = "{\"after\":{\"id\":\"" + MESSAGE_ID + "\",\"event_type\":\"PaymentRequested\"},\"op\":\"c\"}";
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("apex.public.outbox_event", 0, 0, "key", value);
+
+        assertThatThrownBy(() -> consumer.onMessage(record)).isInstanceOf(PayloadDeserializationException.class);
     }
 }

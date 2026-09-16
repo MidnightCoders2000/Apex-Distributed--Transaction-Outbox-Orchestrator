@@ -33,6 +33,14 @@ public class OutboxEventEnvelopeParser {
      * consumer group, the first messages read back are old schema-wrapped
      * test records predating the envelope fix, where op parses as null
      * under this shape.
+     *
+     * {@code "r"} (connector snapshot/re-snapshot read) is accepted on the
+     * same footing as {@code "c"} (insert): intentional, so a re-snapshot
+     * replays historical ShipmentRequested rows through the same idempotency
+     * check rather than silently skipping them. This only holds while the
+     * idempotency table's rows survive — bootstrap-db/*.sql is applied by
+     * hand via CREATE TABLE IF NOT EXISTS, not a tracked migration, so
+     * dropping/recreating that table would let a re-snapshot double-publish.
      */
     public boolean isRelevant(OutboxEnvelope envelope, String eventType) {
         if (envelope.after() == null) {

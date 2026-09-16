@@ -36,4 +36,13 @@ class PaymentRequestedPayloadParserTest {
         assertThatThrownBy(() -> parser.parse(envelope))
                 .isInstanceOf(PayloadDeserializationException.class);
     }
+
+    @Test
+    void missingPayloadFieldThrowsInsteadOfNpe() throws Exception {
+        OutboxEnvelope envelope = objectMapper.readValue(
+                "{\"after\":{\"event_type\":\"PaymentRequested\"},\"op\":\"c\"}", OutboxEnvelope.class);
+
+        assertThatThrownBy(() -> parser.parse(envelope))
+                .isInstanceOf(PayloadDeserializationException.class);
+    }
 }

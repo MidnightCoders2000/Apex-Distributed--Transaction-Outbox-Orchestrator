@@ -116,14 +116,15 @@ PAY_COUNT_BEFORE="$(processed_row_count payment_processed_message "$PAY_ID")"
 PAY_SOFT_BEFORE="$(topic_message_count apex.payment.events)"
 
 echo "-- payment: redelivering same message --"
-redeliver_message "$PAY_ID" || true
+PAY_REDELIVERED=true
+redeliver_message "$PAY_ID" || PAY_REDELIVERED=false
 sleep 5
 
 PAY_COUNT_AFTER="$(processed_row_count payment_processed_message "$PAY_ID")"
 PAY_SOFT_AFTER="$(topic_message_count apex.payment.events)"
 
 PAY_B=false
-[ "$PAY_COUNT_BEFORE" = "1" ] && [ "$PAY_COUNT_AFTER" = "1" ] && PAY_B=true
+[ "$PAY_REDELIVERED" = "true" ] && [ "$PAY_COUNT_BEFORE" = "1" ] && [ "$PAY_COUNT_AFTER" = "1" ] && PAY_B=true
 
 echo "-- shipment: inserting ShipmentRequested --"
 SHIP_TX="verify-b3-ship-${TS}"
@@ -137,14 +138,15 @@ SHIP_COUNT_BEFORE="$(processed_row_count shipment_processed_message "$SHIP_ID")"
 SHIP_SOFT_BEFORE="$(topic_message_count apex.shipment.events)"
 
 echo "-- shipment: redelivering same message --"
-redeliver_message "$SHIP_ID" || true
+SHIP_REDELIVERED=true
+redeliver_message "$SHIP_ID" || SHIP_REDELIVERED=false
 sleep 5
 
 SHIP_COUNT_AFTER="$(processed_row_count shipment_processed_message "$SHIP_ID")"
 SHIP_SOFT_AFTER="$(topic_message_count apex.shipment.events)"
 
 SHIP_B=false
-[ "$SHIP_COUNT_BEFORE" = "1" ] && [ "$SHIP_COUNT_AFTER" = "1" ] && SHIP_B=true
+[ "$SHIP_REDELIVERED" = "true" ] && [ "$SHIP_COUNT_BEFORE" = "1" ] && [ "$SHIP_COUNT_AFTER" = "1" ] && SHIP_B=true
 
 fmt() { [ "$1" = "true" ] && echo "PASS" || echo "FAIL"; }
 
