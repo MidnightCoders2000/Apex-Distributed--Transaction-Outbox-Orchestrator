@@ -10,7 +10,7 @@ import java.time.Instant;
 @Getter
 @Setter
 @Entity
-@Table(name = "outbox_events")
+@Table(name = "outbox_event")
 public class OutboxEvent {
     @Id @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
