@@ -181,6 +181,14 @@ that lands back on Track B once Epic A3 exists and publishes to
    tightly synced (daily check-in).
 6. S1 + S2 together at the end.
 
+## Integration status
+
+Epic A1–A3 landed on `main`; see
+[docs/integration-status-epic-a.md](docs/integration-status-epic-a.md) for
+what's confirmed compatible with Track B, what was fixed in reconciliation,
+and the remaining design gap (real saga flow doesn't complete end-to-end yet)
+that needs Track A follow-up.
+
 ## Open questions (fill in as you decide)
 
 - [x] Repo hosting / access for both developers: GitHub, both admins.
