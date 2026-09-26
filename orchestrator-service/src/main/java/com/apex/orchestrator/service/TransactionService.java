@@ -10,19 +10,14 @@ import com.apex.orchestrator.repository.TransactionRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.aspectj.lang.annotation.RequiredTypes;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import java.time.Duration;
-import javax.print.DocFlavor;
-
-
 import lombok.RequiredArgsConstructor;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
-
 public class TransactionService {
 
     private final StringRedisTemplate redisTemplate;
@@ -31,7 +26,6 @@ public class TransactionService {
     private final ObjectMapper objectMapper;
 
     @Transactional
-
     public void processTransaction(String idempotencyKey, TransactionRequest request){
         Boolean isNew = redisTemplate.opsForValue()
                 .setIfAbsent("idempotency:" + idempotencyKey, "Processing",Duration.ofMinutes(10));
@@ -39,12 +33,15 @@ public class TransactionService {
         if(Boolean.FALSE.equals(isNew)) {
             throw new DuplicateRequestException("Transaction with this key is already processing.");
         }
+
         Transaction tx = new Transaction();
         tx.setAccountId(request.accountId());
         tx.setAmount(request.amount());
         tx.setState(TransactionState.STARTED);
         tx = transactionRepository.save(tx);
+
         try{
+
             OutboxEvent event = new OutboxEvent();
             event.setAggregateId(tx.getId().toString());
             event.setAggregateType("Transaction");
@@ -57,6 +54,14 @@ public class TransactionService {
 
             event.setPayload(objectMapper.writeValueAsString(payloadNode));
             outboxEventRepository.save(event);
+
+            OutboxEvent paymentCommand = new OutboxEvent();
+            paymentCommand.setAggregateId(tx.getId().toString());
+            paymentCommand.setAggregateType("payment");
+            paymentCommand.setEventType("PaymentRequested");
+
+            paymentCommand.setPayload(objectMapper.writeValueAsString(payloadNode));
+            outboxEventRepository.save(paymentCommand);
         }catch (JsonProcessingException e){
             throw new RuntimeException("Failed to serialize outbox payload", e);
         }
