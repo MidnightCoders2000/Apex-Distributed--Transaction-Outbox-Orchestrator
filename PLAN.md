@@ -163,6 +163,21 @@ the shape these reply events actually publish).
 - Story: CI pipeline (GitHub Actions) running `mvn verify` with
   Testcontainers on a clean runner.
 
+**Status:** CI pipeline story landed —
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `mvn verify` on
+every push to `main` and every PR, but currently only for `common-events`,
+`common-messaging`, `payment-service`, and `shipment-service`.
+`orchestrator-service` is deliberately excluded: its `TransactionServiceTest`
+hits a real external Postgres/Redis via `.env`-style placeholders instead of
+Testcontainers, so it can't start on a clean runner — see
+[docs/integration-status-epic-a.md](docs/integration-status-epic-a.md).
+Needs a Track A fix (switch that test to Testcontainers, matching the
+`@ServiceConnection` pattern `payment-service`/`shipment-service`'s own
+`*ApplicationTests` already use) before it can join this job. The other
+three S1 stories (real Postgres+Kafka+Redis spin-up, the happy-path and
+rollback end-to-end tests) are still open — blocked on the saga actually
+completing end-to-end (see the orchestrator gaps above).
+
 ### Epic S2 — Docs & Interview Demo
 - Story: Architecture diagram (request flow + failure flow).
 - Story: README explaining the dual-write problem and why Outbox+CDC solves
