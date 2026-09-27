@@ -46,13 +46,40 @@ end-to-end today**, independent of the table-name bug above:
    bridges `apex.payment.events`/`apex.shipment.events` back into the
    orchestrator. The saga state machine is currently unreachable code.
 3. **`apex.saga.commands` (the Day 0 contract's compensation-command topic)
-   is never produced to.** Track B's runbook already flags consuming a
-   compensation command as out of scope pending this; it still is.
+   is never produced to.** `SagaOrchestrator` instead routes
+   `CancelPaymentCommand` through the same `outbox_event`/CDC path as every
+   other command (`event_type = "CancelPaymentCommand"` on the shared
+   `apex.public.outbox_event` topic) rather than a dedicated Kafka topic —
+   confirmed compatible with how Track B's consumers already read that
+   topic, so this one is resolved, just not the way the Day 0 doc originally
+   sketched it.
 
-None of the above is guessed at or implemented here — it's Track A's design
-call how the orchestrator should bridge Kafka replies back into the saga
-(a `@KafkaListener` per reply topic translating into the existing
+None of the above (1-2) is guessed at or implemented here — it's Track A's
+design call how the orchestrator should bridge Kafka replies back into the
+saga (a `@KafkaListener` per reply topic translating into the existing
 `PaymentReservedEvent`/`ShipmentFailedEvent`, presumably, plus emitting
 `PaymentRequested`/`ShipmentRequested` outbox rows at the right saga steps).
 Flagging it here so it's tracked instead of silently discovered later at
 integration time.
+
+## Fixed on the Track B side (this branch)
+
+- **`payment-service` now consumes `CancelPaymentCommand`** off
+  `apex.public.outbox_event` (own consumer group
+  `apex-payment-service-compensation`, same idempotency table as
+  `PaymentOutboxConsumer`) and publishes `PaymentCompensated` on
+  `apex.payment.events`. See `PaymentCompensationConsumer`. The command's
+  payload currently only carries `transactionId` (no `correlationId`), so
+  the published `PaymentCompensated.correlationId()` is `null` — needs a
+  Track A fix if `correlationId` should be populated end-to-end.
+- **`PaymentReserved`/`PaymentFailed`/`ShipmentReserved`/`ShipmentFailed`/
+  `PaymentCompensated` (`common-events`) now self-report an `"eventType"`
+  JSON field** (via `@JsonGetter`), since `SagaReplyListener` reads
+  `root.get("eventType")` off the raw message body but these records were
+  never publishing one — every reply was silently dropped (caught, logged,
+  discarded) before this. This alone does not make `SagaReplyListener` work:
+  it also expects a nested `payload.transactionId`, but these events publish
+  `transactionId` at the top level with no `payload` wrapper. **Track A
+  still needs to update `SagaReplyListener` to read `transactionId` from the
+  message root**, not from a `payload` sub-object, since Track B's message
+  shape is what's actually on the wire and is shared by all consumers.

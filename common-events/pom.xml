@@ -14,4 +14,14 @@
   <packaging>jar</packaging>
   <name>common-events</name>
   <description>Shared event/command contracts used by all Apex services (the Day-0 contract, in code)</description>
+
+  <dependencies>
+    <!-- Annotations only (no databind/core): lets these records self-report
+         an "eventType" JSON field without pulling Jackson's runtime into a
+         module that's otherwise deliberately dependency-free. -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-annotations</artifactId>
+    </dependency>
+  </dependencies>
 </project>

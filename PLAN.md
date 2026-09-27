@@ -141,10 +141,13 @@ configurable failure injection (rate + trigger-account-ids), and publish
 `apex.payment.events`/`apex.shipment.events`. Verification —
 [runbook](docs/runbooks/mock-consumer-verification.md),
 [`verify-mock-consumers.sh`](infra/debezium/verify-mock-consumers.sh).
-Consuming a compensation command (for Epic S1's rollback test) is
-explicitly out of scope here — see the runbook and inline code comments;
-that lands back on Track B once Epic A3 exists and publishes to
-`apex.saga.commands`.
+Consuming a compensation command (for Epic S1's rollback test) is now
+implemented: `payment-service` consumes `CancelPaymentCommand` off the same
+`outbox_event`/CDC path (own consumer group, see
+`PaymentCompensationConsumer`) and publishes `PaymentCompensated`. See
+[docs/integration-status-epic-a.md](docs/integration-status-epic-a.md) for
+the remaining gap on Track A's side (`SagaReplyListener` doesn't yet parse
+the shape these reply events actually publish).
 
 ---
 
